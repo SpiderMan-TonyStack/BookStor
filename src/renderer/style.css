@@ -593,3 +593,207 @@ body {
   vertical-align: middle;
   cursor: help;
 }
+/* ---------------------------------------------------------------- 快捷键设置
+ *
+ * 遮罩 + 居中卡片。遮罩不是纯黑而是半透明，为的是「知道下面还有内容」，
+ * 不像真的弹出了新页面。
+ *
+ * 按键框的三种状态必须一眼能分开：
+ *   普通    灰底灰字，表示用的是默认键
+ *   is-custom   青色文字 + 青边框，表示这一项被改过
+ *   is-capturing 更亮的青色 + 青底，表示正在等你按键
+ */
+#jd-settings {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#jd-settings.hidden {
+  display: none;
+}
+
+#jd-settings-panel {
+  width: min(540px, 88vw);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: #242528;
+  border: 1px solid var(--jd-border);
+  border-radius: 8px;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  color: #d6d6d6;
+  font-size: 13px;
+}
+
+#jd-settings-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--jd-border);
+}
+
+#jd-settings-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #8a8f98;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#jd-settings-close:hover {
+  background: #33353a;
+  color: #ddd;
+}
+
+#jd-settings-tip {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  color: #8a8f98;
+  font-size: 12px;
+  line-height: 1.6;
+  border-bottom: 1px solid var(--jd-border);
+}
+
+#jd-settings-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0 10px;
+}
+
+.jd-key-group {
+  padding: 10px 14px 4px;
+  font-size: 11px;
+  color: #6f757e;
+  letter-spacing: 0.06em;
+}
+
+.jd-key-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 14px;
+}
+
+.jd-key-row:hover {
+  background: #2a2c30;
+}
+
+.jd-key-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.jd-key-btn {
+  flex: 0 0 auto;
+  min-width: 136px;
+  appearance: none;
+  background: #2c2e33;
+  border: 1px solid #3a3d43;
+  border-radius: 5px;
+  color: #cfd3d9;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 120ms, background 120ms;
+}
+
+.jd-key-btn:hover {
+  border-color: #4c5560;
+}
+
+.jd-key-btn.is-custom {
+  color: var(--jd-accent);
+  border-color: #2f5c58;
+}
+
+.jd-key-btn.is-capturing {
+  background: #1d2b2a;
+  border-color: var(--jd-accent);
+  color: var(--jd-accent);
+}
+
+.jd-key-clear {
+  flex: 0 0 auto;
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #6f757e;
+  font-size: 14px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.jd-key-clear:hover:not(:disabled) {
+  background: #33353a;
+  color: #ddd;
+}
+
+.jd-key-clear:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+
+#jd-settings-foot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--jd-border);
+  background: #1f2023;
+}
+
+#jd-settings-reset {
+  flex: 0 0 auto;
+  appearance: none;
+  background: #2c2e33;
+  border: 1px solid #3a3d43;
+  border-radius: 5px;
+  color: #cfd3d9;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+#jd-settings-reset:hover {
+  border-color: #4c5560;
+}
+
+#jd-settings-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--jd-accent);
+}
+
+#jd-settings-msg.is-err {
+  color: #e0746a;
+}

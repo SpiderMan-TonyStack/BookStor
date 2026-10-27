@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { COMMANDS, keyOf, type Keymap } from '../shared/commands.js'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import { resolveUserDataDir } from './paths.js'
 import { loadConfig, saveConfig, defaultThemeDir } from './config.js'
@@ -21,18 +22,42 @@ let mainWindow: BrowserWindow | null = null
 /** 渲染层报告的「有未保存改动」状态，供关窗拦截使用（IPC 推上来，主进程不猜） */
 let rendererDirty = false
 
+/**
+ * 录制快捷键期间置 true：此时菜单**不挂任何 accelerator**。
+ *
+ * 为什么必须这样：Electron 的菜单快捷键在主进程就吃掉了按键，
+ * 渲染层根本收不到 keydown。用户想把已经绑给「保存」的 Ctrl+S 改到别的命令，
+ * 一按 Ctrl+S 就触发保存、录制框什么都没录到 —— 看起来像「按了没反应」。
+ * 所以进录制前先把菜单重建一遍、把键全摘掉，录完再挂回去。
+ */
+let captureMode = false
+
 function send(cmd: string): void {
   mainWindow?.webContents.send('menu', cmd)
 }
 
-function buildMenu(): void {
+/** 从命令表生成一个菜单项，label / accelerator 都跟着 commands.ts 走 */
+function mi(cmd: string, keymap: Keymap): Electron.MenuItemConstructorOptions {
+  const def = COMMANDS.find((c) => c.cmd === cmd)
+  const accel = keyOf(cmd, keymap)
+  return {
+    label: def?.label ?? cmd,
+    ...(accel && !captureMode ? { accelerator: accel } : {}),
+    click: () => send(cmd),
+  }
+}
+
+async function buildMenu(): Promise<void> {
+  const cfg = await loadConfig()
+  const keymap: Keymap = cfg.keymap ?? {}
+
   const template: Electron.MenuItemConstructorOptions[] = [
     {
       label: '文件',
       submenu: [
-        { label: '打开笔记库…', accelerator: 'CmdOrCtrl+O', click: () => send('open-library') },
+        mi('open-library', keymap),
         { type: 'separator' },
-        { label: '保存', accelerator: 'CmdOrCtrl+S', click: () => send('save') },
+        mi('save', keymap),
         { type: 'separator' },
         { role: 'quit', label: '退出' },
       ],
@@ -48,23 +73,23 @@ function buildMenu(): void {
         { role: 'paste', label: '粘贴' },
         { role: 'selectAll', label: '全选' },
         { type: 'separator' },
-        { label: '查找', accelerator: 'CmdOrCtrl+F', click: () => send('find') },
+        mi('find', keymap),
       ],
     },
     {
       label: '格式',
       submenu: [
-        { label: '标题 1', accelerator: 'CmdOrCtrl+1', click: () => send('h1') },
-        { label: '标题 2', accelerator: 'CmdOrCtrl+2', click: () => send('h2') },
-        { label: '标题 3', accelerator: 'CmdOrCtrl+3', click: () => send('h3') },
-        { label: '标题 4', accelerator: 'CmdOrCtrl+4', click: () => send('h4') },
-        { label: '标题 5', accelerator: 'CmdOrCtrl+5', click: () => send('h5') },
-        { label: '标题 6', accelerator: 'CmdOrCtrl+6', click: () => send('h6') },
-        { label: '正文', accelerator: 'CmdOrCtrl+0', click: () => send('p') },
+        mi('h1', keymap),
+        mi('h2', keymap),
+        mi('h3', keymap),
+        mi('h4', keymap),
+        mi('h5', keymap),
+        mi('h6', keymap),
+        mi('p', keymap),
         { type: 'separator' },
-        { label: '加粗', accelerator: 'CmdOrCtrl+B', click: () => send('bold') },
-        { label: '斜体', accelerator: 'CmdOrCtrl+I', click: () => send('italic') },
-        { label: '行内代码', accelerator: 'CmdOrCtrl+Shift+`', click: () => send('code') },
+        mi('bold', keymap),
+        mi('italic', keymap),
+        mi('code', keymap),
       ],
     },
     {
@@ -76,6 +101,13 @@ function buildMenu(): void {
         { role: 'resetZoom', label: '实际大小' },
         { role: 'zoomIn', label: '放大' },
         { role: 'zoomOut', label: '缩小' },
+      ],
+    },
+    {
+      label: '设置',
+      submenu: [
+        // 这一项本身不参与自定义（改「打开设置」的键没有意义，也容易把自己锁死）
+        { label: '快捷键…', click: () => send('settings') },
       ],
     },
   ]
@@ -337,6 +369,41 @@ ipcMain.on('app:titlebar-theme', (_e, mode: unknown) => {
   nativeTheme.themeSource = mode
 })
 
+// ------------------------------------------------------------------ 快捷键设置
+
+/** 设置面板开局要的数据：当前覆盖表 + 全部可改命令 */
+ipcMain.handle('keymap:get', async () => {
+  const cfg = await loadConfig()
+  return { keymap: cfg.keymap ?? {}, commands: COMMANDS }
+})
+
+/**
+ * 保存覆盖表并立刻重建菜单。
+ *
+ * 顺手做两件清理，免得配置文件越用越脏：
+ *   - 丢掉空值（用户点了「清除」就是删掉这一项，回落到默认键）
+ *   - 丢掉命令表里已经不存在的 cmd（旧版本留下的，或我以后删掉的命令）
+ */
+ipcMain.handle('keymap:set', async (_e, map: unknown) => {
+  const clean: Keymap = {}
+  if (map && typeof map === 'object') {
+    for (const [cmd, accel] of Object.entries(map as Record<string, unknown>)) {
+      if (typeof accel !== 'string' || !accel.trim()) continue
+      if (!COMMANDS.some((c) => c.cmd === cmd)) continue
+      clean[cmd] = accel.trim()
+    }
+  }
+  await saveConfig({ keymap: clean })
+  await buildMenu()
+  return clean
+})
+
+/** 进入/退出录制：录制期间菜单不挂 accelerator，否则想改 Ctrl+S 只会触发「保存」 */
+ipcMain.on('keymap:capture', (_e, on: unknown) => {
+  captureMode = Boolean(on)
+  void buildMenu()
+})
+
 /** 侧栏宽度：拖一下记住，下次启动还原 */
 ipcMain.handle('app:getSidebarWidth', async () => (await loadConfig()).sidebarWidth)
 ipcMain.handle('app:setSidebarWidth', async (_e, w: number) => {
@@ -370,7 +437,7 @@ if (!gotLock) {
     if (userDataInfo.fellBack) {
       console.warn(`[简牍] userData 降级到 ${userDataInfo.dir}（${userDataInfo.reason}）`)
     }
-    buildMenu()
+    await buildMenu()
     await createWindow()
     await watchThemeDir()
 

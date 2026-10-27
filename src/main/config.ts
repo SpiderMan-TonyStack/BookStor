@@ -12,6 +12,10 @@ export interface AppConfig {
   autosaveDebounceMs: number
   themeDir: string
   themeName: string
+  /** 用户自定义的快捷键覆盖表（cmd → Electron accelerator）。
+   *  空表 = 全部用默认值。只存改过的项，默认值永远以 shared/commands.ts 为准，
+   *  这样以后调默认键时不会和用户配置打架。 */
+  keymap: Record<string, string>
   /** 崩溃恢复用：未落盘的内容快照
    *  @deprecated 草稿已迁到独立的 draft.json（见 src/main/draft.ts）。
    *  这里只为**迁移旧配置**保留字段：读到它就搬到 draft.json 并清空。 */
@@ -27,6 +31,7 @@ const DEFAULTS: AppConfig = {
   autosaveDebounceMs: 800,
   themeDir: '',
   themeName: 'builtin-dark',
+  keymap: {},
   crashDraft: null,
 }
 

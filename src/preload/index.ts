@@ -30,6 +30,10 @@ contextBridge.exposeInMainWorld('api', {
 
   setDirty: (value: boolean) => ipcRenderer.send('app:dirty', value),
   setTitleBarTheme: (mode: 'dark' | 'light') => ipcRenderer.send('app:titlebar-theme', mode),
+
+  getKeymap: () => ipcRenderer.invoke('keymap:get'),
+  setKeymap: (map: Record<string, string>) => ipcRenderer.invoke('keymap:set', map),
+  setCaptureMode: (on: boolean) => ipcRenderer.send('keymap:capture', on),
   quitNow: () => ipcRenderer.send('app:quit-now'),
 
   onMenu: (cb: (cmd: string) => void) => {

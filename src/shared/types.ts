@@ -2,6 +2,8 @@
  * 共享类型：主进程 ↔ 渲染进程
  */
 
+import type { CommandDef, Keymap } from './commands.js'
+
 export interface FileNode {
   name: string
   path: string
@@ -108,6 +110,16 @@ declare global {
        * 标题栏是系统画的，CSS 碰不到；只能让主进程设 nativeTheme.themeSource。
        */
       setTitleBarTheme(mode: 'dark' | 'light'): void
+      /** 快捷键设置：当前覆盖表 + 全部可改命令 */
+      getKeymap(): Promise<{ keymap: Keymap; commands: CommandDef[] }>
+      /** 保存覆盖表，主进程会立刻重建菜单（改完即生效） */
+      setKeymap(map: Keymap): Promise<Keymap>
+      /**
+       * 进入/退出「录制快捷键」模式。
+       * 录制期间主进程会把菜单上的 accelerator 全部摘掉 —— 否则 Electron 在
+       * 主进程就把按键吃了，渲染层收不到 keydown，想改 Ctrl+S 时只会触发保存。
+       */
+      setCaptureMode(on: boolean): void
       /** 存完盘后主动退出（主进程的「保存并关闭」走这条） */
       quitNow(): void
       onMenu(cb: (cmd: string) => void): void

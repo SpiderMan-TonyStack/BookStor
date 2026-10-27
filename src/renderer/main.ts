@@ -3,6 +3,7 @@ import { renderTree, setActive } from './tree.js'
 import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, type EditorHandle } from './editor.js'
 import { applyTheme, reloadTheme, currentThemeReport } from './theme.js'
 import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
+import { openSettings } from './settings.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -556,6 +557,9 @@ window.api.onMenu((cmd) => {
     case 'code':
       if (ed) wrapSelection(ed.view, '`')
       return
+    case 'settings':
+      void openSettings()
+      return
   }
 })
 
@@ -595,3 +599,12 @@ window.addEventListener('beforeunload', () => {
   // 只来得及把草稿塞进同步路径；真正的保护在主进程 close 事件里
   if (current && editor) void window.api.saveDraft(current.path, editor.getDoc())
 })
+
+/**
+ * 自动化钩子：让 CDP / DevTools 能直接打开设置面板。
+ *
+ * 系统菜单是主进程画的，CDP 点不到「设置 → 快捷键…」那一项；
+ * 没有这个入口，设置面板的整条链路（读配置 → 渲染 → 录制 → 写回）
+ * 就只能在测试里靠人工点。挂出来的只是「打开面板」这一个动作，没有额外权限。
+ */
+;(window as unknown as Record<string, unknown>)['__jdOpenSettings'] = openSettings

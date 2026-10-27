@@ -72,6 +72,25 @@
       </div>
     </main>
 
+    <!-- 快捷键设置：点右侧按键框进入录制，改完即生效（不用「应用」按钮）。
+         默认隐藏，设置菜单 openSettings() 时才显示。 -->
+    <div id="jd-settings" class="hidden">
+      <div id="jd-settings-panel" role="dialog" aria-modal="true" aria-label="快捷键设置">
+        <div id="jd-settings-head">
+          <span>快捷键设置</span>
+          <button id="jd-settings-close" title="关闭 (Esc)">✕</button>
+        </div>
+        <div id="jd-settings-tip">
+          点右侧按键框进入录制，然后按下新的组合键。Esc 取消，Backspace 清除（回到默认）。
+        </div>
+        <div id="jd-settings-list"></div>
+        <div id="jd-settings-foot">
+          <button id="jd-settings-reset">全部恢复默认</button>
+          <span id="jd-settings-msg"></span>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="./main.ts"></script>
   </body>
 </html>
