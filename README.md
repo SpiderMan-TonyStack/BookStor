@@ -154,6 +154,7 @@ body 背景的**感知亮度**（ITU-R BT.601 加权，别用三通道平均值 
 | 滚动定位要迭代校正 | CM6 对没渲染过的行只有**估算**高度，滚过去之后才真正渲染、内容重排，位置又偏了（实测一次校正在靠后标题上偏 400px）。做法是递增延迟 30/60/90ms 连校 3 轮，误差收进 4px |
 | 限宽别加在滚动容器上 | 想让正文占 90% 时，`max-width` 一度写在 `#write` 上——而 `#write` 就是滚动容器，滚动条跟着被拽到 90% 处，右边留一大条空白，看着像滚动条脱离了窗口。限宽必须下沉到不参与滚动的 `.cm-editor`，滚动条才贴得住窗口右缘 |
 | `::-webkit-scrollbar-thumb` 的 `currentColor` 是**容器**的颜色 | 所以滚动块颜色可以直接从主题正文色派生，不用为每个主题配一个滚动条色。但主题若写了 `background: var(--scrollbar-color) !important`（dyzj 系列就是这样），主题赢——这是主题的表达，别去压 |
+| 光标是纯黑的，和主题没关系 | CM6 默认 `.cm-cursor { border-left: 1.2px solid black }`，深色适配那条是 `&dark .cm-cursor`——只有用过 `EditorView.theme(…, {dark:true})` 才会生成 `.cm-dark` 类。本项目颜色全交给 Typora 主题，`.cm-dark` 永远不存在，所以深色主题下光标一直是黑的（实测 `hasCmDark: false`）。改为 `border-left-color: currentColor` 跟随正文色，且**必须带 `#write` 前缀**（1,1,0）：CM6 的样式是运行时注入到 `<head>` 末尾，同特异性它赢 |
 
 ## 数据安全怎么做的
 

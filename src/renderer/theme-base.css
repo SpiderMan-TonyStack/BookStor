@@ -151,3 +151,23 @@ body {
 #write table.jd-table th {
   font-weight: 700;
 }
+
+/* ---------------------------------------------------------------- 光标
+ *
+ * CM6 用 drawSelection 自绘光标，默认样式写死成 `.cm-cursor { border-left: 1.2px solid black }`。
+ * 它另有一条深色适配 `&dark .cm-cursor { border-left-color: #ddd }`，但那个 `&dark`
+ * 只有在用 `EditorView.theme(…, { dark: true })` 时才会生成 `.cm-dark` 类 ——
+ * 本项目不用 CM6 自带的深浅主题（颜色全部交给 Typora 主题），所以 `.cm-dark` 永远不存在，
+ * 深色主题下光标就一直是纯黑，落在深背景上几乎看不见。
+ *
+ * 改成跟随正文色：浅色主题自动变深、深色主题自动变浅，任何主题都不用单独配。
+ * 特异性必须是 1,1,0 —— CM6 的样式是运行时注入到 <head> 末尾的，同特异性它会赢。
+ * 主题若想自定义光标颜色，写一条同样带 #write 的 `.cm-cursor` 规则即可覆盖（主题在后面加载）。
+ */
+#write .cm-cursor,
+#write .cm-dropCursor {
+  border-left-color: var(--jd-caret-color, currentColor);
+  /* 默认 1.2px 太细，深色背景下更显弱；加粗到 2px，margin 同步补偿以保持水平居中 */
+  border-left-width: 2px;
+  margin-left: -1px;
+}
