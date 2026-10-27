@@ -115,7 +115,9 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 `theme-fix.css` 里还压了三条**外壳级强制项**（不属于主题表达范围，对所有主题一致）：
 
 - 正文区 `max-width: 90%` —— 各主题自带的阅读宽度（80em / 860px）在宽屏上留白过多。
-  **限宽只能挂在 `.cm-editor` 上**：`#write` 自己是滚动容器，给它限宽会把滚动条一起拽到 90% 那条线上（详见「已知的坑」）
+  **限宽只能挂在 `.cm-editor` 上**：`#write` 自己是滚动容器，给它限宽会把滚动条一起拽到 90% 那条线上（详见「已知的坑」）。
+  同时 `#write` 的**左右 padding 必须归零**，否则 40px 内边距会被 90% 再切一刀，
+  正文实际只剩 84.2%；内边距改由 `.cm-editor` 提供，取值走 `--jd-write-pad`（默认 30px，主题可覆盖）
 - 所有行级元素 `margin: 0 !important` —— CM6 的行块测不到 margin，详见「已知的坑」里那条
 - 滚动条自绘 —— 颜色由 `color-mix(in srgb, currentColor 22%, transparent)` 从主题正文色派生，
   深浅主题自动适配，不用维护色表。主题自己写了 `--scrollbar-color` + `!important` 时以主题为准

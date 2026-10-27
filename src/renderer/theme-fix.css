@@ -49,6 +49,9 @@
   width: 100% !important;
   margin-left: 0 !important;
   margin-right: 0 !important;
+  /* 左右内边距必须归零：留在 #write 上会被 90% 再切一刀
+     （rider-dark 的 40px 让正文实际只剩 84.2%），
+     而且内边距对滚动条位置毫无影响 —— 滚动条在 padding 之外、贴的是 border 内缘。 */
   padding-left: 0 !important;
   padding-right: 0 !important;
 }
@@ -57,8 +60,9 @@
   max-width: 90%;
   margin-left: auto;
   margin-right: auto;
-  padding-left: 30px;
-  padding-right: 30px;
+  /* 文字和 90% 边界之间留一口气。走变量，主题想改就设 --jd-write-pad */
+  padding-left: var(--jd-write-pad, 30px);
+  padding-right: var(--jd-write-pad, 30px);
 }
 
 /* ---------------------------------------------------------------- 滚动条
