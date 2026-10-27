@@ -25,12 +25,17 @@
         <span id="jd-lib-name" title="">未打开笔记库</span>
         <button id="jd-open-lib" title="打开笔记库 (Ctrl+O)">打开</button>
       </div>
-      <div id="jd-tree" role="tree"></div>
-      <!-- 大纲（M5-1）：标题列表，点一下跳到对应位置。
-           没有标题时整块隐藏（main.ts 控 hidden）。 -->
-      <div id="jd-outline-wrap" class="hidden">
-        <div id="jd-outline-head">大纲</div>
-        <div id="jd-outline" role="list"></div>
+      <!-- 文件 / 大纲 两个标签页（对齐 Rider 侧栏的观感） -->
+      <div id="jd-tabs" role="tablist">
+        <button id="jd-tab-files" class="jd-tab is-active" role="tab">文件</button>
+        <button id="jd-tab-outline" class="jd-tab" role="tab">大纲</button>
+      </div>
+      <div id="jd-panes">
+        <div id="jd-tree" role="tree"></div>
+        <!-- 大纲（M5-1）：标题列表，点一下跳到对应位置 -->
+        <div id="jd-outline-wrap" class="hidden">
+          <div id="jd-outline" role="list"></div>
+        </div>
       </div>
       <div id="jd-sidebar-foot">
         <label for="jd-theme">主题</label>

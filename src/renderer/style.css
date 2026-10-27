@@ -16,7 +16,7 @@
  *   jd-guard  把外壳从主题的宽规则里捞回来            ← 最高
  */
 :root {
-  --jd-sidebar-bg: #1a1a1a;
+  --jd-sidebar-bg: #1e1f22;
   --jd-sidebar-fg: #b9b9b9;
   --jd-border: #2f2f2f;
   --jd-accent: #00c4b6;
@@ -114,12 +114,66 @@ body {
   color: #fff;
 }
 
+/* ---------------------------------------------------------------- 侧栏标签页（文件 / 大纲） */
+
+#jd-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--jd-border);
+}
+
+.jd-tab {
+  flex: 1 1 0;
+  position: relative;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 8px 0 7px;
+  font-family: inherit;
+  font-size: 13px;
+  color: #8a8f98;
+  cursor: pointer;
+  transition: color 120ms;
+}
+
+.jd-tab:hover {
+  color: #c8ccd2;
+}
+
+.jd-tab.is-active {
+  color: #ffffff;
+}
+
+/* 选中下划线：居中的一小段，和 Rider 一致 */
+.jd-tab.is-active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -1px;
+  transform: translateX(-50%);
+  width: 52px;
+  height: 2px;
+  border-radius: 1px;
+  background: #ffffff;
+}
+
+#jd-panes {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 #jd-tree {
   flex: 1 1 auto;
   overflow: auto;
   padding: 6px 0 12px;
   font-size: 13px;
   line-height: 1.5;
+}
+
+#jd-tree.hidden {
+  display: none;
 }
 
 /* ---------------------------------------------------------------- 大纲（M5-1） */
@@ -129,12 +183,11 @@ body {
  */
 
 #jd-outline-wrap {
-  flex: 0 0 auto;
-  max-height: 42%;
+  flex: 1 1 auto;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--jd-border);
+  overflow: hidden;
 }
 
 #jd-outline-wrap.hidden {
@@ -210,9 +263,8 @@ body {
 }
 
 .jd-node.is-active {
-  background: #2b3a3a;
+  background: #2d5c8a;
   color: #fff;
-  box-shadow: inset 2px 0 0 var(--jd-accent);
 }
 
 .jd-node-name {
@@ -230,6 +282,14 @@ body {
 
 .jd-caret.collapsed {
   transform: rotate(-90deg);
+}
+
+/* 文件夹 / 文件图标 */
+.jd-icon {
+  flex: 0 0 auto;
+  font-size: 12px;
+  line-height: 1;
+  opacity: 0.9;
 }
 
 .jd-children {

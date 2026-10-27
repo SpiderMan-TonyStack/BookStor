@@ -1,32 +1,36 @@
 /*
- * rider-dark —— JetBrains Rider / IntelliJ「Darcula」配色
+ * rider-dark —— Visual Assist Dark 配色
  *
- * 取色依据：Rider 编辑器默认深色方案（Darcula）。
- *   背景 #2b2b2b   正文 #a9b7c6   关键字 #cc7832   字符串 #6a8759
- *   数字 #6897bb   方法名 #ffc66d  枚举/字段 #9876aa  注释 #808080
- *   预处理 #bbb529 分隔线 #3c3f41  选中 #214283
+ * 取色依据：Visual Assist Dark 配色方案（Zed 的 visual_assist_dark.json，
+ * 与 Rider 里装了 Visual Assist 后的深色方案同源）。核心色值：
+ *   编辑器底 #111111   前景 #bdb76b（暗金）
+ *   keyword #d8a0df（紫粉）  string #d69d85（暖橙）  comment #57a64a（绿）
+ *   function/method #ff8000（橙）  type #ffd700（金）
+ *   variable/property #bdb76b（暗金）  constant/preproc #bd63c5（紫）
+ *   number #b5cea8（浅绿）  operator/punctuation #dcdcdc（浅灰）
+ *   boolean/atom #569cd6（蓝）
  *
- * 代码高亮这一节**必须**写成 `.cm-s-inner .cm-xxx` 的形式：
- * 简牍的翻译管线会把 `.cm-s-inner` 这类 CodeMirror 5 作用域剥掉，
- * 再把 `.cm-*` 改名成 CM6 `classHighlighter` 输出的 `.tok-*`。
- * 直接写 `.tok-keyword` 反而不行 —— 主题是活的 CSS，两边都要能跑。
+ * 注意：**正文**没有用 #bdb76b —— 那是代码编辑区的前景色，整篇笔记正文发黄
+ * 会很难读。正文保持中性浅灰，只把代码块换成 VAD 的颜色。
  *
- * 同时这也是一个标准 Typora 主题，丢进 Typora 的 themes 目录即可使用。
+ * 代码高亮这一节写成 `.cm-s-inner .cm-xxx` 的形式：
+ * 简牍的翻译管线会剥掉 `.cm-s-inner` 作用域、把 `.cm-*` 改名成 CM6
+ * `classHighlighter` 输出的 `.tok-*`。这样同一份文件在简牍和 Typora 里都能跑。
  */
 
 :root {
   --bg-color: #2b2b2b;
-  --text-color: #a9b7c6;
+  --text-color: #c3cad3;
   --muted-color: #808080;
   --border-color: #3c3f41;
   --accent-color: #4b6eaf;
-  --code-bg: #232323;
-  --inline-code-bg: #3c3f41;
+  --code-bg: #111111;
+  --inline-code-bg: #2a2d2e;
   --selection-bg: #214283;
-  --link-color: #287bde;
+  --link-color: #569cd6;
 
-  --jd-code-bg: #232323;
-  --jd-code-border: #3c3f41;
+  --jd-code-bg: #111111;
+  --jd-code-border: #2a2d2e;
 
   /* theme-base.css 的代码字体读这个变量；不设就退化到 Consolas */
   --code-font: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
@@ -224,80 +228,82 @@ body {
   line-height: 1.6;
 }
 
-/* ---------------------------------------------------------------- 代码高亮（Darcula）
+/* ---------------------------------------------------------------- 代码高亮（Visual Assist Dark）
  *
  * 这些选择器会在简牍里被翻译成 .tok-*；在 Typora 里则原样生效。
  * 两边同一份值，改一处两边都对。
  */
 
 .cm-s-inner .cm-keyword {
-  color: #cc7832;
-  font-weight: normal;
+  color: #d8a0df;
 }
+/* atom 对应 VAD 的 boolean / 常量字面量 */
 .cm-s-inner .cm-atom {
-  color: #cc7832;
+  color: #569cd6;
 }
 .cm-s-inner .cm-number {
-  color: #6897bb;
+  color: #b5cea8;
 }
 .cm-s-inner .cm-def {
-  color: #ffc66d;
+  color: #ff8000;
 }
 .cm-s-inner .cm-variable {
-  color: #a9b7c6;
+  color: #bdb76b;
 }
+/* 实例字段 / 静态成员：VAD 里 constant 是紫色 */
 .cm-s-inner .cm-variable-2 {
-  color: #9876aa;
+  color: #bd63c5;
 }
-/* 类型名在 Darcula 里是正文色，不是紫色 —— 紫色留给静态字段/枚举常量（variable-2） */
+/* 类型名：VAD 的 type 是金色 */
 .cm-s-inner .cm-variable-3 {
-  color: #a9b7c6;
+  color: #ffd700;
 }
 .cm-s-inner .cm-property {
-  color: #ffc66d;
+  color: #ff8000;
 }
 /* 注意：这里**不要**写 .cm-attribute 规则。
    mapping.json 把 cm-property 和 cm-attribute 都映射到 tok-propertyName，
-   两条规则落在同一个类上，后出现的会覆盖前面的 —— 实测 cm-attribute 的 #bababa
-   把方法/属性该有的金黄 #ffc66d 盖成了灰白。 */
+   两条规则落在同一个类上，后出现的会覆盖前面的。 */
 .cm-s-inner .cm-operator {
-  color: #a9b7c6;
+  color: #dcdcdc;
 }
 .cm-s-inner .cm-string {
-  color: #6a8759;
+  color: #d69d85;
 }
 .cm-s-inner .cm-string-2 {
-  color: #6a8759;
+  color: #d69d85;
 }
 .cm-s-inner .cm-comment {
-  color: #808080;
+  color: #57a64a;
   font-style: normal;
 }
 .cm-s-inner .cm-tag {
-  color: #e8bf6a;
+  color: #d8a0df;
 }
 .cm-s-inner .cm-bracket {
-  color: #a9b7c6;
+  color: #dcdcdc;
 }
 .cm-s-inner .cm-builtin {
-  color: #8888c6;
+  color: #ff8000;
 }
 .cm-s-inner .cm-qualifier {
-  color: #9876aa;
+  color: #bdb76b;
 }
 .cm-s-inner .cm-meta {
-  color: #bbb529;
+  color: #bd63c5;
 }
 .cm-s-inner .cm-link {
-  color: #287bde;
+  color: #569cd6;
 }
 .cm-s-inner .cm-error {
-  color: #bc3f3c;
+  color: #f44747;
 }
 
-/* 代码块本体的默认字色：没被任何 token 命中的字符（空格、标点等） */
+/* 代码块本体的默认字色：没被任何 token 命中的字符（空格、标点等）。
+   用 VAD 的编辑器前景色 #bdb76b —— 这正是它在 Rider 里的观感。
+   （正文不用这个色，见文件头注释。） */
 .cm-s-inner {
-  color: #a9b7c6;
+  color: #bdb76b;
 }
 
 /* ---------------------------------------------------------------- 图片 */

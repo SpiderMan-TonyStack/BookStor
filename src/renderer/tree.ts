@@ -41,12 +41,13 @@ function buildNode(node: FileNode, depth: number, opts: TreeOptions): HTMLElemen
     const isCollapsed = collapsed.has(node.path)
     if (isCollapsed) caret.classList.add('collapsed')
     row.append(caret)
-  } else {
-    const caret = document.createElement('span')
-    caret.className = 'jd-caret'
-    caret.textContent = '·'
-    row.append(caret)
   }
+  // 文件行不放箭头，靠图标区分（和 Rider 的侧栏一致）
+
+  const icon = document.createElement('span')
+  icon.className = 'jd-icon'
+  icon.textContent = node.isDir ? (collapsed.has(node.path) ? '📁' : '📂') : '📄'
+  row.append(icon)
 
   const name = document.createElement('span')
   name.className = 'jd-node-name'
@@ -68,6 +69,9 @@ function buildNode(node: FileNode, depth: number, opts: TreeOptions): HTMLElemen
       else collapsed.delete(node.path)
       children.classList.toggle('hidden', nowCollapsed)
       row.querySelector('.jd-caret')?.classList.toggle('collapsed', nowCollapsed)
+      // 文件夹图标跟着开/合切换
+      const iconEl = row.querySelector('.jd-icon')
+      if (iconEl) iconEl.textContent = nowCollapsed ? '📁' : '📂'
     })
   } else {
     wrap.append(row)

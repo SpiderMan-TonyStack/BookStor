@@ -27,6 +27,8 @@ const elSidebar = $('jd-sidebar')
 const elSidebarResize = $('jd-sidebar-resize')
 const elOutlineWrap = $('jd-outline-wrap')
 const elOutline = $('jd-outline')
+const elTabFiles = $('jd-tab-files')
+const elTabOutline = $('jd-tab-outline')
 const elWrite = $('write')
 
 // ------------------------------------------------------------------ 状态
@@ -85,11 +87,10 @@ function ensureEditor(): EditorHandle {
 function rebuildOutline(): void {
   if (!editor) {
     outlineItems = []
-    elOutlineWrap.classList.add('hidden')
+    elOutline.textContent = ''
     return
   }
   outlineItems = computeOutline(editor.view.state)
-  elOutlineWrap.classList.toggle('hidden', outlineItems.length === 0)
   renderOutline(elOutline, outlineItems, (pos) => {
     if (editor) jumpTo(editor.view, pos)
   })
@@ -125,6 +126,24 @@ function scheduleOutline(): void {
     rebuildOutline()
   }, 150)
 }
+
+// ------------------------------------------------------------------ 侧栏标签页（文件 / 大纲）
+
+/**
+ * 两个标签页共用侧栏的整块高度，而不是上下挤在一起 ——
+ * 文件树本身就有 17 个顶层目录，再分一半给大纲，两边都难用。
+ * 显示与否只由标签页决定；大纲没有标题时由 renderOutline 自己显示
+ * 「这篇没有标题」，不再靠隐藏整块来"假装没这个功能"。
+ */
+function setSidebarTab(name: 'files' | 'outline'): void {
+  elTabFiles.classList.toggle('is-active', name === 'files')
+  elTabOutline.classList.toggle('is-active', name === 'outline')
+  elTree.classList.toggle('hidden', name !== 'files')
+  elOutlineWrap.classList.toggle('hidden', name !== 'outline')
+}
+
+elTabFiles.addEventListener('click', () => setSidebarTab('files'))
+elTabOutline.addEventListener('click', () => setSidebarTab('outline'))
 
 // 滚动时同步大纲高亮。节流 80ms：滚动事件一次能连发几十个，
 // 每个都去 posAtCoords + 遍历大纲项没必要。
