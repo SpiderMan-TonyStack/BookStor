@@ -15,6 +15,13 @@ dist/
 .testlib/
 .testthemes/
 
+# 手工复制到项目内的真实笔记库副本（约 415MB，仅本地摆着看用；
+# 真源在 D:\BaiduSyncdisk\笔记，这里的副本不入版本库、也不参与打包）
+笔记/
+
+# 工具产生的本地记忆/缓存目录
+.workbuddy/
+
 # 排查脚本产物
 probe*.cjs
 probe*.log
