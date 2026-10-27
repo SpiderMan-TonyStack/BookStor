@@ -103,6 +103,26 @@ body {
   overflow-wrap: break-word;
 }
 
+/*
+ * 代码块的「底座」：底色 + 边框 + 圆角。
+ *
+ * 之前这里什么都没有，全指望主题的 .md-fences 提供 —— 主题在的时候没问题，
+ * 但主题选「（内置）」时，代码块就只剩等宽字体：没底色、没边框、没圆角，
+ * 一眼看过去和正文段落没区别（实测截图就是这样）。
+ * 内置样式本来就是兜底，兜底就该兜得住。
+ *
+ * **这里不能带 `#write ` 前缀**：主题翻译出来的代码块规则是 `.jd-code-block`
+ * （来自裸 `.md-fences`，特异性 0,1,0），而 `#write .jd-code-block` 是 1,1,0 ——
+ * 一旦加上前缀，底座就会反过来压住主题，实测 dyzj-dark 的 `#1a1a1a` 底色和
+ * 亮色边框全被这条灰底覆盖掉了。同特异性时靠层叠顺序取胜：theme-base 在前，
+ * 主题在后，主题自然赢；没有主题时才有底座。
+ */
+.jd-code-block {
+  background: var(--jd-code-bg, rgba(127, 127, 127, 0.1));
+  border: 1px solid var(--jd-code-border, rgba(127, 127, 127, 0.25));
+  border-radius: 4px;
+}
+
 /* 图片 */
 #write img {
   max-width: 100%;

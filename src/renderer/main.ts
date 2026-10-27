@@ -93,7 +93,24 @@ function rebuildOutline(): void {
   renderOutline(elOutline, outlineItems, (pos) => {
     if (editor) jumpTo(editor.view, pos)
   })
-  highlightOutline(elOutline, outlineItems, editor.view.state.selection.main.head)
+  syncOutlineToViewport()
+}
+
+/**
+ * 大纲高亮 = **视口顶部所在的章节**，不是光标所在的章节。
+ *
+ * 一开始用的是光标，结果是：用滚轮往下翻，大纲高亮纹丝不动地停在原处，
+ * 看起来就是「选中和内容对不上」。翻文档时不一定会点一下让光标过去，
+ * 所以必须以视口为准。（点正文时 onSelection 也会调一次，两者通常一致。）
+ *
+ * 取视口顶部往下 24px（跳过 #write 的 padding-top）的中点坐标反查字符位置；
+ * 反查失败（内容还没布局）就退回光标位置，至少不会整排都没高亮。
+ */
+function syncOutlineToViewport(): void {
+  if (!editor || outlineItems.length === 0) return
+  const rect = elWrite.getBoundingClientRect()
+  const pos = editor.view.posAtCoords({ x: rect.left + rect.width / 2, y: rect.top + 24 })
+  highlightOutline(elOutline, outlineItems, pos ?? editor.view.state.selection.main.head)
 }
 
 /**
@@ -108,6 +125,21 @@ function scheduleOutline(): void {
     rebuildOutline()
   }, 150)
 }
+
+// 滚动时同步大纲高亮。节流 80ms：滚动事件一次能连发几十个，
+// 每个都去 posAtCoords + 遍历大纲项没必要。
+let outlineScrollTimer: number | null = null
+elWrite.addEventListener(
+  'scroll',
+  () => {
+    if (outlineScrollTimer !== null) return
+    outlineScrollTimer = window.setTimeout(() => {
+      outlineScrollTimer = null
+      syncOutlineToViewport()
+    }, 80)
+  },
+  { passive: true }
+)
 
 function scheduleSave(): void {
   if (saveTimer !== null) window.clearTimeout(saveTimer)
