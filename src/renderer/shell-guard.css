@@ -1,0 +1,52 @@
+﻿/*
+ * 外壳保护 —— 必须排在主题 CSS 之后加载。
+ *
+ * 主题是给 Typora 写的，会假设整个文档都是正文。我们有侧栏和状态栏，
+ * 主题里偶尔会有 `div{…}`、`*{…}`、`body{…}` 这类宽规则把它们一起刷掉。
+ * 这里把外壳的隔离重新声明一遍，代价是几十字节，收益是侧栏永远不会变白板。
+ *
+ * 注意：不要在这里写 #write 内的任何东西 —— 正文必须完全交给主题。
+ */
+
+#jd-sidebar,
+#jd-sidebar * {
+  text-align: left;
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  line-height: 1.5;
+  letter-spacing: normal;
+  text-justify: auto;
+}
+
+#jd-sidebar {
+  background: #1a1a1a;
+  color: #b9b9b9;
+  border-right: 1px solid #2f2f2f;
+}
+
+#jd-status,
+#jd-status * {
+  text-align: left;
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  line-height: 1.4;
+  letter-spacing: normal;
+}
+
+#jd-status {
+  background: #1f1f1f;
+  color: #777;
+  border-top: 1px solid #2f2f2f;
+}
+
+/* 主题可能给 body 加 overflow/text-align，保住窗口本身 */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: row;
+}

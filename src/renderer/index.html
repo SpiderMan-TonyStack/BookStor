@@ -1,0 +1,55 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' file: data: https:; style-src 'self' 'unsafe-inline' file:; font-src 'self' file: data:; script-src 'self'"
+    />
+    <title>简牍</title>
+
+    <!--
+      静态样式只有两层，顺序有意义（策划案 §5.2-C）：
+        1. style.css        外壳（侧栏 / 状态栏 / 编辑器重置）
+        2. theme-base.css   Typora 内置默认的等价物（骨架）
+      其余三层（主题本体 / 结构修正 / 外壳保护）由 renderer/theme.ts 在运行时
+      按固定顺序 append 到 <head> 末尾 —— 因为 Vite 会把这里的 <link> 合成一个
+      产物 CSS，运行时注入的 <style> 只能排在它后面，靠 HTML 顺序拿不到正确层叠。
+    -->
+    <link rel="stylesheet" href="./style.css" />
+    <link rel="stylesheet" href="./theme-base.css" />
+  </head>
+  <body>
+    <aside id="jd-sidebar">
+      <div id="jd-sidebar-head">
+        <span id="jd-lib-name" title="">未打开笔记库</span>
+        <button id="jd-open-lib" title="打开笔记库 (Ctrl+O)">打开</button>
+      </div>
+      <div id="jd-tree" role="tree"></div>
+      <div id="jd-sidebar-foot">
+        <label for="jd-theme">主题</label>
+        <select id="jd-theme">
+          <option value="">（内置）</option>
+        </select>
+      </div>
+    </aside>
+
+    <main class="jd-content">
+      <div id="write">
+        <div id="jd-editor"></div>
+        <div id="jd-empty">
+          <p>从左侧选一篇笔记，或者按 <kbd>Ctrl</kbd>+<kbd>O</kbd> 打开笔记库。</p>
+        </div>
+      </div>
+      <div id="jd-status">
+        <span id="jd-status-path"></span>
+        <span id="jd-status-right">
+          <span id="jd-status-save"></span>
+          <span id="jd-status-meta"></span>
+        </span>
+      </div>
+    </main>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

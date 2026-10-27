@@ -1,0 +1,71 @@
+﻿/*
+ * 结构差异修正 —— 排在主题 CSS 之后。
+ *
+ * Typora 的代码块是**一个** `<pre class="md-fences">` 包着内部行；
+ * 我们的代码块是**一串** `.cm-line`（CM6 不允许把可编辑内容塞进 widget）。
+ * 主题里 `.md-fences { background; border: 1px solid; border-radius: 3px }`
+ * 就会变成每一行各画一个框，视觉上是断开的条纹。
+ *
+ * 这里把「一串行」重新拼回「一个框」：
+ *   - 首行画上边框 + 上圆角，末行画下边框 + 下圆角
+ *   - 中间行只保留左右边框
+ *
+ * 只做结构修正，不覆盖主题的颜色和字体 —— 那些必须由主题决定。
+ */
+
+#write .jd-code-block {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+#write .jd-code-block:not(.jd-code-first) {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+#write .jd-code-block:not(.jd-code-last) {
+  border-bottom: 0;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+#write .jd-code-first {
+  padding-top: 0.8em;
+  margin-top: 0.9rem;
+}
+
+#write .jd-code-last {
+  padding-bottom: 0.8em;
+  margin-bottom: 0.9rem;
+}
+
+/* 围栏行（```cpp）在 Typora 里是被隐藏的。我们保留它（否则没法点进去编辑）
+   但压到几乎看不见，避免一行 `cpp` 孤零零挂在代码块里。 */
+#write .jd-code-fence {
+  font-size: 0.72em !important;
+  line-height: 1 !important;
+  opacity: 0.35;
+  padding-top: 0.2em;
+  padding-bottom: 0.2em;
+}
+
+/* 引用的左侧竖线在 Typora 里是 blockquote 的 border-left。
+   我们是逐行的，连续引用行之间要接上，不能每行重开一个缺口。 */
+#write .jd-quote + .jd-quote {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+#write .jd-quote {
+  border-left-width: 4px;
+}
+
+/* 表格：Typora 真 table 有外框，我们是逐行。给首末行补框线。 */
+#write .jd-table-row.jd-table-first {
+  border-top: 1px solid rgba(127, 127, 127, 0.35);
+}
+
+#write .jd-table-row.jd-table-last {
+  border-bottom: 1px solid rgba(127, 127, 127, 0.35);
+}

@@ -1,0 +1,110 @@
+/*
+ * 主题加载「前」的兜底 —— 等价于 Typora 自己内置的那份 base.css。
+ *
+ * 为什么必须有：Typora 主题只写「和内置默认的差异」。dyzj-dark 里翻遍 1989 行，
+ * 没有任何一条给页面设背景色（`content { background: var(--bg-color) }` 在
+ * dyzj.css:47-49 是被注释掉的）—— 背景来自 Typora 应用内置的 CSS。
+ * 我们如果不补这份骨架，套上 dyzj-dark 会得到「白底 + 白字」，等于没装。
+ *
+ * 数值全部取自实测：dyzj.css:5 `html{font-size:17px}`、dyzj.css:9 body、
+ * dyzj.css:41 `#write{max-width:860px;margin:0 auto;padding:20px 30px 160px}`、
+ * dyzj-dark.css:81 `#write{max-width:80em}`。
+ *
+ * 规则：这里只放 Typora 内置默认有的东西。主题能覆盖的，绝不在这里抢优先级。
+ */
+
+/* 页面底色。主题变量名是 Typora 的约定，回退值是 Typora 默认浅色。 */
+.jd-content,
+body {
+  background-color: var(--bg-color, #fff);
+}
+
+.jd-content {
+  color: var(--body-color, #333);
+  /* 主题把 html 的 font-size 设成 17px，正文用 rem 才能跟着缩放 */
+  font-size: 1rem;
+}
+
+#write {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 20px 30px 160px;
+}
+
+/* CM6 的行是 div。主题给 h1/p 的 margin 会落到行上，
+   行自带 margin 会让行距翻倍，统一压平，间距交给块级类自己声明。 */
+#write .cm-line {
+  margin: 0;
+  padding: 0;
+}
+
+#write .cm-content {
+  padding: 0;
+}
+
+/* Typora 默认正文段落间距（主题几乎都会重写这条） */
+#write .jd-p {
+  margin: 0.85rem 0;
+}
+
+/* 空行不该撑出双倍高度 */
+#write .jd-blank {
+  margin: 0;
+  min-height: 1.2em;
+}
+
+/* 标题骨架 —— 主题若给了字号颜色会覆盖，没给也不至于全平 */
+#write .jd-h1 { font-size: 2em;    font-weight: 700; margin: 1.6rem 0 1rem; }
+#write .jd-h2 { font-size: 1.6em;  font-weight: 700; margin: 1.4rem 0 0.9rem; }
+#write .jd-h3 { font-size: 1.32em; font-weight: 700; margin: 1.25rem 0 0.8rem; }
+#write .jd-h4 { font-size: 1.12em; font-weight: 700; margin: 1.1rem 0 0.7rem; }
+#write .jd-h5 { font-size: 1em;    font-weight: 700; margin: 1rem 0 0.6rem; }
+#write .jd-h6 { font-size: 0.94em; font-weight: 700; margin: 1rem 0 0.6rem; opacity: 0.85; }
+
+/* 引用块：Typora 默认只有左侧竖线 */
+#write .jd-quote {
+  margin: 0.85rem 0;
+  padding-left: 1em;
+  border-left: 4px solid rgba(127, 127, 127, 0.35);
+}
+
+/* 列表项 */
+#write .jd-li {
+  margin: 0.25rem 0;
+}
+
+/* 分隔线 */
+#write .jd-hr {
+  margin: 1.4rem 0;
+  border: 0;
+  border-top: 1px solid rgba(127, 127, 127, 0.35);
+}
+
+/* 行内代码：主题用 --code-font / --codebg-color 控制，先给等宽兜底。
+   CM6 不生成 <code> 元素，所以渲染层把内容挂上 .jd-code-inline（见 markers.ts），
+   mapping.json 也把 `code` 标签映射成它 —— 主题的 `#write code{...}` 才有对象。 */
+#write .jd-code-inline,
+#write .cm-line code {
+  font-family: var(--code-font, Consolas, monospace), Consolas, monospace;
+  font-size: 0.9em;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  background: var(--codebg-color, rgba(127, 127, 127, 0.16));
+}
+
+/* 代码块字体（底色/边框由主题的 .md-fences → .jd-code-block 提供） */
+#write .jd-code-line,
+#write .jd-code-block {
+  font-family: var(--code-font, Consolas, monospace), Consolas, monospace;
+  font-size: 0.92em;
+  line-height: 1.6em;
+  padding: 0 1em;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* 图片 */
+#write img {
+  max-width: 100%;
+  height: auto;
+}

@@ -1,0 +1,385 @@
+/* 应用外壳样式 —— 刻意保持极简，真正的观感来自 Typora 主题（§5.2-C） */
+
+/*
+ * 层叠层顺序声明。必须出现在所有样式的最前面（Vite 打包时 style.css 是第一个
+ * 被引入的文件，所以这段会落在产物 CSS 的开头）。
+ *
+ * 为什么要用 @layer 而不是靠 <link>/<style> 的先后：Vite 会把四个 <link> 合成
+ * 一个产物文件，并把我方运行时注入的 <style id="jd-typora-theme"> 提到它前面 ——
+ * 结果就是「外壳样式压过主题」，body 的字体和颜色全被外壳的 #ddd / 雅黑盖掉。
+ * 层叠层与 DOM 顺序无关，只由这一行的声明决定优先级，build 与 dev 一致。
+ *
+ *   jd-shell  外壳（侧栏、状态栏、编辑器重置）        ← 最低
+ *   jd-base   Typora 内置默认的等价物（骨架）
+ *   jd-theme  翻译后的主题本体（运行时注入）
+ *   jd-fix    结构差异修正（代码块拼回一个框）
+ *   jd-guard  把外壳从主题的宽规则里捞回来            ← 最高
+ */
+:root {
+  --jd-sidebar-bg: #1a1a1a;
+  --jd-sidebar-fg: #b9b9b9;
+  --jd-border: #2f2f2f;
+  --jd-accent: #00c4b6;
+  --jd-statusbar-bg: #1f1f1f;
+  --jd-sidebar-w: 240px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  font-family: 'Microsoft YaHei', 'PingFang SC', sans-serif;
+  background: #262626;
+  color: #ddd;
+  font-size: 14px;
+}
+
+/* ---------------------------------------------------------------- 侧栏 */
+
+#jd-sidebar {
+  width: var(--jd-sidebar-w);
+  min-width: 160px;
+  max-width: 480px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--jd-sidebar-bg);
+  border-right: 1px solid var(--jd-border);
+  user-select: none;
+}
+
+#jd-sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--jd-border);
+  flex: 0 0 auto;
+}
+
+#jd-lib-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--jd-sidebar-fg);
+  font-weight: 600;
+}
+
+#jd-open-lib {
+  flex: 0 0 auto;
+  background: #2c2c2c;
+  color: #ccc;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#jd-open-lib:hover {
+  background: #353535;
+  color: #fff;
+}
+
+#jd-tree {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 6px 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.jd-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 12px 3px 0;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  color: var(--jd-sidebar-fg);
+}
+
+.jd-node:hover {
+  background: #242424;
+}
+
+.jd-node.is-active {
+  background: #2b3a3a;
+  color: #fff;
+  box-shadow: inset 2px 0 0 var(--jd-accent);
+}
+
+.jd-node-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jd-caret {
+  flex: 0 0 14px;
+  text-align: center;
+  font-size: 9px;
+  opacity: 0.6;
+  transition: transform 0.12s;
+}
+
+.jd-caret.collapsed {
+  transform: rotate(-90deg);
+}
+
+.jd-children {
+  display: block;
+}
+
+.jd-children.hidden {
+  display: none;
+}
+
+#jd-sidebar-foot {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--jd-border);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #888;
+}
+
+#jd-theme {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #2c2c2c;
+  color: #ccc;
+  border: 1px solid #3a3a3a;
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 12px;
+  font-family: inherit;
+}
+
+/* ---------------------------------------------------------------- 正文 */
+
+.jd-content {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#write {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  max-width: 80em;
+  margin: 0 auto;
+  width: 100%;
+  padding: 20px 30px 160px;
+}
+
+#jd-editor {
+  min-height: 100%;
+}
+
+#jd-empty {
+  color: #666;
+  text-align: center;
+  margin-top: 22vh;
+  font-size: 14px;
+  line-height: 2;
+}
+
+#jd-empty kbd {
+  background: #333;
+  border: 1px solid #444;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 12px;
+}
+
+#jd-empty.hidden {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- 状态栏 */
+
+#jd-status {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 26px;
+  padding: 0 12px;
+  font-size: 11px;
+  color: #777;
+  background: var(--jd-statusbar-bg);
+  border-top: 1px solid var(--jd-border);
+  user-select: none;
+}
+
+#jd-status-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+
+#jd-status-right {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 14px;
+}
+
+#jd-status-save.is-dirty {
+  color: #d9a13b;
+}
+
+#jd-status-save.is-saved {
+  color: #4a9d5c;
+}
+
+#jd-status-save.is-error {
+  color: #d9534f;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- 编辑器基础（被主题覆盖） */
+
+#write .cm-editor {
+  height: auto;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+#write .cm-editor.cm-focused {
+  outline: none;
+}
+
+#write .cm-scroller {
+  font-family: inherit;
+  line-height: inherit;
+  overflow: visible;
+}
+
+#write .cm-content {
+  padding: 0;
+  caret-color: var(--jd-accent);
+}
+
+.jd-meta {
+  opacity: 0.35;
+  transition: opacity 0.12s;
+}
+
+.cm-line.jd-active .jd-meta {
+  opacity: 1;
+}
+
+/*
+ * ---------------------------------------------------------------- 语法标记显隐（M2）
+ *
+ * 见 markers.ts 的注释：这里**不用** display:none / width:0 / replace 装饰，
+ * 只用 font-size:0。字符仍在文档里、仍在光标可及范围里，
+ * 选中整行复制拿到的仍是完整 markdown（无损原则）。
+ *
+ * 用 color:transparent 会留下字符宽度，布局就不会跳，但会让行内间距变得怪异；
+ * font-size:0 连宽度一起收掉，换行重排反而更接近 Typora 的观感。
+ */
+.jd-md0 {
+  font-size: 0;
+  letter-spacing: 0;
+  /* font-size:0 之下 border/padding 仍可能撑宽，一并归零 */
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+}
+
+/* 被替换出来的列表符号 / 任务框 */
+.jd-bullet {
+  display: inline-block;
+  min-width: 1.1em;
+  color: var(--jd-list-marker, currentColor);
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.jd-bullet-bullet {
+  text-align: center;
+}
+
+.jd-bullet-ordered {
+  text-align: right;
+  padding-right: 0.35em;
+}
+
+.jd-bullet-task-todo,
+.jd-bullet-task-done {
+  font-size: 0.95em;
+}
+
+/* 行内代码被藏掉反引号后，需要它自己有底色（Typora 里就是 .md-fences-inline） */
+.jd-md0-inline {
+  display: none;
+}
+
+/*
+ * ---------------------------------------------------------------- 图片（M2）
+ *
+ * 裂图**必须显式**（策划案 §5.7）：库里现有 94 处裂图，Typora 打开也是裂的。
+ * 不用空白顶掉、也不做花哨的失败卡片 —— 一个灰色虚线小框 + 截断的文件名，
+ * hover 看得到完整路径。目的是"看得见它坏了"，不是"看起来设计过"。
+ */
+.jd-img-box {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.jd-img-box .jd-img {
+  max-width: 100%;
+  height: auto;
+  vertical-align: middle;
+}
+
+.jd-img-broken {
+  display: none;
+}
+
+.jd-img-failed .jd-img {
+  display: none;
+}
+
+.jd-img-failed .jd-img-broken {
+  display: inline-block;
+  max-width: 22em;
+  padding: 0.5em 0.7em;
+  border: 1px dashed rgba(127, 127, 127, 0.65);
+  border-radius: 3px;
+  color: rgba(127, 127, 127, 0.95);
+  font-family: var(--code-font, Consolas, monospace), Consolas, monospace;
+  font-size: 0.78em;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  cursor: help;
+}

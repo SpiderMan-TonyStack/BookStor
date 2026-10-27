@@ -1,0 +1,57 @@
+{
+  "name": "jiandu",
+  "version": "0.1.0",
+  "description": "简牍 · 个人桌面笔记软件（Typora 主题兼容）",
+  "main": "./out/main/index.js",
+  "author": "SpiderMan-TonyStack",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "npm run build && node scripts/run.mjs",
+    "app": "node scripts/run.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "dist": "electron-vite build && electron-builder --win portable",
+    "verify": "node scripts/verify-roundtrip.mjs"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.9.0",
+    "@codemirror/lang-markdown": "^6.3.4",
+    "@codemirror/language": "^6.11.3",
+    "@codemirror/language-data": "^6.5.1",
+    "@codemirror/search": "^6.5.11",
+    "@codemirror/state": "^6.5.2",
+    "@codemirror/view": "^6.38.6",
+    "@lezer/highlight": "^1.2.1",
+    "postcss": "^8.5.6",
+    "postcss-selector-parser": "^7.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.1",
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.9.2",
+    "vite": "^5.4.20"
+  },
+  "build": {
+    "appId": "com.jiandu.app",
+    "electronDist": "node_modules/electron/dist",
+    "productName": "简牍",
+    "executableName": "jiandu",
+    "directories": { "output": "release" },
+    "files": ["out/**/*", "resources/**/*"],
+    "extraResources": [
+      { "from": "src/theme/mapping.json", "to": "theme/mapping.json" }
+    ],
+    "afterPack": "scripts/after-pack.cjs",
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "artifactName": "简牍-${version}-portable.${ext}",
+      "icon": "scripts/icon.ico",
+      "signAndEditExecutable": false
+    },
+    "portable": { "artifactName": "简牍-${version}-portable.${ext}" }
+  }
+}

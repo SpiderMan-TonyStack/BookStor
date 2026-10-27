@@ -1,0 +1,51 @@
+{
+  "_comment": [
+    "Typora 选择器 → 简牍 DOM 选择器。键是主题 CSS 里写的，值是替换成的（纯类名，不带点）。",
+    "改这个文件不用改代码（开发期会优先读源码目录里的这份）。",
+    "tags:    裸标签名，如 h1 → jd-h1（替换成 .jd-h1，元素名一并换掉）",
+    "classes: 类名，如 md-fences → jd-code-block",
+    "ids:     id 名，如 typora-source → jd-source",
+    "整个规则丢弃的黑名单在 src/main/theme.ts 的 SHELL_BLOCKLIST（代码里，不在这个文件）"
+  ],
+  "tags": {
+    "h1": "jd-h1",
+    "h2": "jd-h2",
+    "h3": "jd-h3",
+    "h4": "jd-h4",
+    "h5": "jd-h5",
+    "h6": "jd-h6",
+    "p": "jd-p",
+    "blockquote": "jd-quote",
+    "ul": "jd-list",
+    "ol": "jd-list-ordered",
+    "li": "jd-li",
+    "hr": "jd-hr",
+    "content": "jd-content",
+    "table": "jd-table",
+    "thead": "jd-table-head",
+    "tbody": "jd-table-body",
+    "tr": "jd-table-row",
+    "td": "jd-table-cell",
+    "th": "jd-table-cell",
+    "img": "jd-img",
+    "pre": "jd-pre",
+    "code": "jd-code-inline",
+    "kbd": "jd-kbd"
+  },
+  "classes": {
+    "md-fences": "jd-code-block",
+    "md-task-list-item": "jd-task",
+    "md-meta-block": "jd-meta",
+    "md-toc-inner": "jd-toc-inner",
+    "md-math": "jd-math",
+    "md-table": "jd-table",
+    "md-img": "jd-img",
+    "md-link": "jd-link",
+    "md-plain": "jd-plain",
+    "md-raw-inline": "jd-raw-inline",
+    "md-tag": "jd-tag"
+  },
+  "ids": {
+    "typora-source": "jd-source"
+  }
+}
