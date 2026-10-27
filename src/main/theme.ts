@@ -302,6 +302,33 @@ function isShellSelector(sel: string): boolean {
   return SHELL_BLOCKLIST.some((bad) => lower.includes(bad))
 }
 
+/**
+ * `.cm-s-inner` / `.CodeMirror*` 是 Typora 里 CodeMirror 5 实例的作用域类。
+ * 我们的 DOM 没有这些元素，规则照搬过来永远不会命中 —— 这正是
+ * 「代码块有底色、有边框，但一个字都不变色」的根因：
+ * dyzj-dark 里 20 条 token 配色全部写成 `.cm-s-inner .cm-keyword { color: … }`。
+ *
+ * 做法：把这些作用域类剥掉，剩下的 `.cm-keyword` 再经 mapping.json 改名成
+ * CM6 的 `.tok-keyword`（见 editor.ts 的 classHighlighter），主题配色就能落地。
+ *
+ * 剥离后若只剩裸标签（`div`、`span`），说明这条规则本来就是靠 .CodeMirror 定位
+ * 外壳的（如 `.cm-s-inner.CodeMirror{background:…}`），直接丢弃 ——
+ * 否则一个裸 `div` 会命中页面上所有 div，后果比不生效严重得多。
+ */
+function stripCodeMirrorScope(sel: string): string | null {
+  if (!/\.(cm-s-inner|CodeMirror)/i.test(sel)) return sel
+
+  const stripped = sel
+    .replace(/\.cm-s-inner\b/gi, '')
+    .replace(/\.CodeMirror(-[a-z0-9]+)?\b/gi, '')
+    .trim()
+
+  if (!stripped) return null
+  // 没有类 / id / 属性 / 伪类了 → 退化成裸标签选择器，丢弃
+  if (!/\.|#|\[|:/.test(stripped)) return null
+  return stripped
+}
+
 function translateSelector(
   sel: string,
   mapping: Required<Mapping>,
@@ -309,7 +336,10 @@ function translateSelector(
 ): string | null {
   if (isShellSelector(sel)) return null
 
-  const normalized = stripSourceviewPrefix(sel)
+  const scoped = stripCodeMirrorScope(sel)
+  if (scoped === null) return null
+
+  const normalized = stripSourceviewPrefix(scoped)
 
   let touched = false
   const processor = selectorParser((selectors) => {

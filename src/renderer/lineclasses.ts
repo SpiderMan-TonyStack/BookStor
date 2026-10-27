@@ -1,5 +1,6 @@
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
+import { createFenceState, stepFence } from './fence.js'
 
 /**
  * 行级语义 class —— Typora 主题选择器映射的 DOM 契约（策划案 §5.2-B）。
@@ -18,7 +19,6 @@ import { RangeSetBuilder } from '@codemirror/state'
  */
 
 const HEADING = /^(#{1,6})\s/
-const FENCE = /^\s{0,3}(```|~~~)/
 const QUOTE = /^\s{0,3}>/
 const UL = /^\s{0,3}[-*+]\s/
 const OL = /^\s{0,3}\d+[.)]\s/
@@ -34,11 +34,10 @@ interface LineInfo {
   kind: 'code' | 'table' | 'other'
 }
 
-function classFor(text: string, inFence: boolean): string {
-  if (inFence) return 'jd-code-line'
+function classFor(text: string, inFence: boolean, isFenceMarker: boolean): string {
+  if (inFence || isFenceMarker) return 'jd-code-line'
   const h = text.match(HEADING)
   if (h) return `jd-h${h[1]!.length}`
-  if (FENCE.test(text)) return 'jd-code-line'
   if (TASK.test(text)) return 'jd-li jd-task'
   if (HR.test(text)) return 'jd-hr'
   if (QUOTE.test(text)) return 'jd-quote'
@@ -52,14 +51,14 @@ function buildDecorations(view: EditorView): DecorationSet {
   const doc = view.state.doc
   const activeLine = doc.lineAt(view.state.selection.main.head).number
 
-  // 围栏状态是文档级的，但只算到视口末尾就够了（视口之前的状态靠回溯一次）
-  let inFence = false
+  // 围栏状态是文档级的，但只算到视口末尾就够了（视口之前的状态靠回溯一次）。
+  // 用 fence.ts 的共享状态机：它按「开启时的缩进」配对，所以列表项里
+  // 4–8 空格缩进的围栏能识别，块内更深缩进的 ``` 也不会把块提前关掉。
+  const fence = createFenceState()
   const firstVisible = view.visibleRanges[0]
   if (firstVisible) {
     const scanTo = doc.lineAt(firstVisible.from).number
-    for (let n = 1; n < scanTo; n++) {
-      if (FENCE.test(doc.line(n).text)) inFence = !inFence
-    }
+    for (let n = 1; n < scanTo; n++) stepFence(fence, doc.line(n).text)
   }
 
   const infos: LineInfo[] = []
@@ -67,18 +66,16 @@ function buildDecorations(view: EditorView): DecorationSet {
     let pos = from
     while (pos <= to) {
       const line = doc.lineAt(pos)
-      const isFenceMarker = FENCE.test(line.text)
-      if (isFenceMarker) inFence = !inFence
+      const step = stepFence(fence, line.text)
 
-      const inner = inFence && !isFenceMarker
-      const cls = classFor(line.text, inner)
+      const cls = classFor(line.text, step.inside, step.isMarker)
       const classes = cls.split(' ')
 
       let kind: LineInfo['kind'] = 'other'
-      if (isFenceMarker) {
+      if (step.isMarker) {
         classes.push('jd-code-fence', 'jd-code-block')
         kind = 'code'
-      } else if (inner) {
+      } else if (step.inside) {
         classes.push('jd-code-block')
         kind = 'code'
       } else if (TABLE.test(line.text)) {

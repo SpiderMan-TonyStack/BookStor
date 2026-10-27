@@ -12,7 +12,7 @@ import { searchKeymap, highlightSelectionMatches, openSearchPanel } from '@codem
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { syntaxHighlighting, HighlightStyle, indentOnInput } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { tags as t, classHighlighter } from '@lezer/highlight'
 import { lineClassPlugin } from './lineclasses.js'
 import { markdownMarksPlugin, docBaseField, setDocBase } from './markers.js'
 import { tableWidgetField } from './table.js'
@@ -74,6 +74,16 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
       addKeymap: true,
     }),
     syntaxHighlighting(jdHighlight),
+
+    // Typora 主题的代码配色写成 `.cm-s-inner .cm-keyword{color:…}`（CodeMirror 5 的
+    // token 类）。上面 jdHighlight 只给了最朴素的几个样式，代码块里的关键字/字符串/
+    // 注释因此全是一个颜色 —— 观感上「根本不像代码块」。
+    //
+    // classHighlighter 给每个 token 挂上 `tok-keyword` / `tok-string` / `tok-comment`
+    // 这类语义类名；主进程的翻译管线会把主题里的 `.cm-*` 改写成对应的 `tok-*`
+    // （见 mapping.json 的 classes 与 theme.ts 的 stripCodeMirrorScope）。
+    // 两套高亮器可以共存：它们写的是不同的类名，互不覆盖。
+    syntaxHighlighting(classHighlighter),
 
     // --- 行级语义 class（供 Typora 主题选择器映射用，见 §5.2-B）
     lineClassPlugin,

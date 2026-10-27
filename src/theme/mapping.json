@@ -43,7 +43,28 @@
     "md-link": "jd-link",
     "md-plain": "jd-plain",
     "md-raw-inline": "jd-raw-inline",
-    "md-tag": "jd-tag"
+    "md-tag": "jd-tag",
+
+    "cm-keyword": "tok-keyword",
+    "cm-atom": "tok-atom",
+    "cm-number": "tok-number",
+    "cm-def": "tok-definition",
+    "cm-variable": "tok-variableName",
+    "cm-variable-2": "tok-variableName2",
+    "cm-variable-3": "tok-typeName",
+    "cm-property": "tok-propertyName",
+    "cm-attribute": "tok-propertyName",
+    "cm-operator": "tok-operator",
+    "cm-string": "tok-string",
+    "cm-string-2": "tok-string2",
+    "cm-comment": "tok-comment",
+    "cm-tag": "tok-className",
+    "cm-bracket": "tok-punctuation",
+    "cm-builtin": "tok-macroName",
+    "cm-qualifier": "tok-namespace",
+    "cm-meta": "tok-meta",
+    "cm-link": "tok-link",
+    "cm-error": "tok-invalid"
   },
   "ids": {
     "typora-source": "jd-source"

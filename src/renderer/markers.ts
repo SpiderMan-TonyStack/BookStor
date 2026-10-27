@@ -1,5 +1,6 @@
 import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
+import { createFenceState, stepFence } from './fence.js'
 
 /**
  * M2：语法标记显隐。
@@ -40,7 +41,8 @@ const RE_HEADING = /^(#{1,6})([ \t]+)/
 const RE_QUOTE = /^([ \t]{0,3}>[ \t]?)/
 const RE_TASK = /^([ \t]*)([-*+])([ \t]+)\[([ xX])\]([ \t]+)/
 const RE_LIST = /^([ \t]*)([-*+]|\d+[.)])([ \t]+)/
-const RE_FENCE = /^([ \t]{0,3})(```+|~~~+)(.*)$/
+// 围栏判断统一走 fence.ts 的状态机（与 lineclasses.ts 共用同一份逻辑）：
+// 列表项内 4–8 空格缩进的围栏要能识别，块内更深缩进的 ``` 不能把块提前关掉。
 const RE_HR = /^[ \t]{0,3}([-*_])([ \t]*\1){2,}[ \t]*$/
 
 /** 当前笔记所在目录 —— 相对图片路径要靠它才能变成 file:// 绝对地址 */
@@ -262,9 +264,9 @@ function buildDecorations(view: EditorView): DecorationSet {
   // 视口之前先把围栏状态推出来
   const firstVisible = view.visibleRanges.length > 0 ? view.visibleRanges[0]!.from : 0
   const scanTo = state.doc.lineAt(firstVisible).number - 1
-  let inFence = false
+  const fenceState = createFenceState()
   for (let n = 1; n <= scanTo; n++) {
-    if (RE_FENCE.test(state.doc.line(n).text)) inFence = !inFence
+    stepFence(fenceState, state.doc.line(n).text)
   }
 
   for (const range of view.visibleRanges) {
@@ -275,22 +277,19 @@ function buildDecorations(view: EditorView): DecorationSet {
       const text = line.text
       const isActive = activeLines.has(n)
 
-      // 围栏标记行：永远处理（藏 ``` 和语言名），并翻转围栏状态
-      const fence = RE_FENCE.exec(text)
-      if (fence) {
-        const indent = fence[1] ?? ''
-        const ticks = fence[2] ?? ''
-        const lang = (fence[3] ?? '').trim()
-        inFence = !inFence
+      // 围栏标记行：永远处理（藏 ``` 和语言名）
+      const fenceStep = stepFence(fenceState, text)
+      if (fenceStep.isMarker) {
         if (!isActive) {
-          push(line.from + indent.length, line.from + indent.length + ticks.length)
+          const at = line.from + fenceStep.indent
+          push(at, at + fenceStep.ticks)
           // 语言名保留但淡化（theme-fix 的 .jd-code-fence 已处理），藏在行尾更干净
-          if (lang) push(line.from + indent.length + ticks.length, line.to)
+          if (fenceStep.lang) push(at + fenceStep.ticks, line.to)
         }
         continue
       }
 
-      if (inFence) continue // 代码内部一个字都不动
+      if (fenceStep.inside) continue // 代码内部一个字都不动
 
       if (isActive) continue
 

@@ -51,6 +51,7 @@ src/
   renderer/
     editor.ts      CM6 实例与扩展
     lineclasses.ts 行级语义 class（.jd-h1…/.jd-code-line…），两轮扫描出「首行/末行」用于拼框
+    fence.ts       围栏状态机（按开启缩进配对），lineclasses 与 markers 共用同一份判断
     markers.ts     语法标记显隐 + 图片 widget（font-size:0 隐藏，不改文本）
     table.ts       表格真渲染（StateField 块装饰；光标进表退回源码）
     theme.ts       主题注入层（五层 CSS 顺序是契约）
@@ -61,10 +62,11 @@ src/
 
 ### 主题兼容的关键
 
-Typora 主题写的是 `#write h1`、`.md-fences`，而 CM6 的行是 `.cm-line`。两边靠两件事对上：
+Typora 主题写的是 `#write h1`、`.md-fences`，而 CM6 的行是 `.cm-line`。两边靠三件事对上：
 
 1. **DOM 尽量像 Typora**：外层 `.jd-content`（对应 Typora 的 `content` 元素）包 `#write`。
 2. **选择器映射**：翻译时用 `postcss` + `postcss-selector-parser` 把主题选择器改写成我们的语义 class（见 `src/theme/mapping.json`）。这份 JSON 是**唯一真相源**——代码里的兜底表由构建期内联它生成，不另抄一份。
+3. **代码 token 配色**：主题里写的是 CodeMirror 5 的 `.cm-s-inner .cm-keyword`。翻译时剥掉作用域类、把 `.cm-*` 改名成 CM6 `classHighlighter` 输出的 `.tok-*`（`tok-keyword`/`tok-string`/`tok-comment`…），主题自带的高亮配色就原样生效。
 
 **为什么运行时翻译而不是把改好的 CSS 存进项目**：换主题、改主题随时发生。热重载让你在 Typora 里改一行、这边 500ms 内跟着变。
 
@@ -96,6 +98,9 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 | 映射表不同标签别共用类名 | `th`/`td` 都映射成 `.jd-table-cell` 会让主题的 `table tr th{background}` 命中所有单元格 → 整表变绿。必须拆成 `jd-table-head-cell` / `jd-table-cell` |
 | 关窗保护不能在渲染层做 | `beforeunload` 里 `void doSave()` 是异步的，窗口已销毁，写盘跑不完。必须主进程 `close` 事件拦 |
 | 映射表别手抄第二份 | 兜底表曾在 `theme.ts` 里另写一份，结果和 `mapping.json` **漂移**：`th`/`td` 又变回共用 `jd-table-cell`、丢了 `code`/`kbd`。漂移不报错，只在「读不到磁盘 mapping.json」时静默回落成过期表（整表变绿），因果极难对上。现在兜底表由构建期**内联同一份 JSON** 生成，磁盘那份仍可热改 |
+| 代码块没高亮 ≠ 丢了主题 | 主题的 token 配色写成 `.cm-s-inner .cm-keyword{color:…}`（CodeMirror **5** 的作用域类）。我们的 DOM 没有 `.cm-s-inner`，规则照搬过来永远不命中 → 代码块有底色有框，但一个字都不变色。解法是翻译时把 `.cm-s-inner`/`.CodeMirror*` 剥掉、`.cm-*` 映射成 CM6 `classHighlighter` 产出的 `.tok-*`；剥完只剩裸标签的规则必须丢弃，否则裸 `div` 命中全页 |
+| 围栏缩进不能简单放宽 | 列表项嵌套会让围栏带 4–8 空格缩进（库内 183 行/10 文件），但代码块**内部**也有深缩进的 ` ``` `。把 `{0,3}` 直接改成 `{0,8}` 会让后者把块提前关掉，实测净减 8206 行。正解是「按开启时的缩进配对」：块内只有缩进 ≤ 开启缩进的围栏才算关闭（见 `renderer/fence.ts`） |
+| 围栏行不能用 opacity 淡化 | 围栏行是代码块上/下边框的载体，`opacity:0.35` 会连 `border` 和 `background` 一起打到 35%，深色主题下「代码块看不出是块」就是这么来的。只淡化文字颜色（`color-mix`） |
 
 ## 数据安全怎么做的
 

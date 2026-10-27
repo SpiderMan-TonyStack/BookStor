@@ -41,11 +41,19 @@
 }
 
 /* 围栏行（```cpp）在 Typora 里是被隐藏的。我们保留它（否则没法点进去编辑）
-   但压到几乎看不见，避免一行 `cpp` 孤零零挂在代码块里。 */
+   但压到几乎看不见，避免一行 `cpp` 孤零零挂在代码块里。
+
+   注意这里**不能**用 opacity 淡化整行：围栏行是代码块的上/下边框载体
+   （见上面 .jd-code-first / .jd-code-last 的 padding 与 margin），
+   opacity 会连同 border 和 background 一起打到 35%，结果就是「代码块没有框」——
+   实测 dx 后首末行的 1px 边框在深色主题里几乎看不见。
+   改成只淡化文字颜色，边框和底色保持主题原值。
+   （围栏字符本身在非活动行已被 markers.ts 用 font-size:0 收掉，
+     这里主要管「光标停在围栏行时显示原文」的情况。） */
 #write .jd-code-fence {
   font-size: 0.72em !important;
   line-height: 1 !important;
-  opacity: 0.35;
+  color: color-mix(in srgb, currentColor 35%, transparent);
   padding-top: 0.2em;
   padding-bottom: 0.2em;
 }
