@@ -50,6 +50,25 @@ export function currentThemeVars(): Record<string, string> {
   return payload?.vars ?? {}
 }
 
+/**
+ * 判断当前主题是深是浅，让 Windows 原生标题栏跟着切。
+ *
+ * 依据是**实际渲染出来的 body 背景色**，不是主题声明的 `--bg-color` ——
+ * 有的主题压根不定义那个变量，直接在 body 上写 background，取计算值最稳。
+ * getComputedStyle 会强制 flush 样式，所以刚挂上的主题也能立刻读到新值。
+ *
+ * 亮度用 ITU-R BT.601 的加权（人眼对绿最敏感、红线权最低）。
+ * 直接拿 RGB 三通道平均会在深蓝、深红这类色上判错 —— 比如 #2b2b2b 平均下来
+ * 离阈值很远，但 #1e3a5f 这种深海军蓝按平均算是"亮"，看着却是深色。
+ */
+function syncTitleBarTheme(): void {
+  const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(document.body).backgroundColor)
+  if (!m) return
+  const lum =
+    (0.299 * Number(m[1]) + 0.587 * Number(m[2]) + 0.114 * Number(m[3])) / 255
+  window.api.setTitleBarTheme(lum < 0.5 ? 'dark' : 'light')
+}
+
 export async function applyTheme(name: string): Promise<ThemePayload | null> {
   mountLayers()
   const el = ensureStyle('jd-typora-theme')
@@ -59,6 +78,7 @@ export async function applyTheme(name: string): Promise<ThemePayload | null> {
     payload = null
     delete document.documentElement.dataset.theme
     delete document.documentElement.dataset.themeFonts
+    syncTitleBarTheme()
     return null
   }
 
@@ -69,6 +89,7 @@ export async function applyTheme(name: string): Promise<ThemePayload | null> {
   // 主题自带 @font-face 时，字体在 file:// 下要等加载完才生效。
   // 把数量挂到 html 上，排查「字体没生效」时能立刻区分「没声明」和「路径错」。
   document.documentElement.dataset.themeFonts = String(result.report.fontFaces)
+  syncTitleBarTheme()
   return result
 }
 

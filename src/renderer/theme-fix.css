@@ -36,11 +36,81 @@
  * 860px），宽屏上左右留白太多。这里统一拉到窗口的 90%。
  * 放在 theme-fix（最后一层）并用 !important，是为了对所有主题一致生效 ——
  * 这是外壳级偏好，不属于主题的表达范围。
+ *
+ * 关键：**限宽不能加在 #write 上**。`#write` 自己就是滚动容器
+ * （`overflow: auto`），滚动条是画在它的右边缘上的 —— 一旦把 #write 限成
+ * 90% 并居中，滚动条就跟着停在那条 90% 的分界线上，右边留一大条空白，
+ * 看着像滚动条脱离窗口（实测就是这样）。
+ * 所以滚动容器必须满宽，#write 保持 100%；限宽下沉到内层的 .cm-editor ——
+ * 它不参与滚动，宽度随便收，滚动条照旧贴在最右边。
  */
 #write {
-  max-width: 90% !important;
+  max-width: none !important;
+  width: 100% !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+#write .cm-editor {
+  max-width: 90%;
   margin-left: auto;
   margin-right: auto;
+  padding-left: 30px;
+  padding-right: 30px;
+}
+
+/* ---------------------------------------------------------------- 滚动条
+ *
+ * 不用系统默认滚动条：默认那条是系统灰实心块，深色主题下对比突兀，
+ * 而且在 Windows 上还带箭头按钮，和整个界面不是一个时代的。
+ *
+ * 颜色不写死，从滚动容器的 currentColor 派生（color-mix 调透明度）：
+ * `#write` 的 color 就是主题给的正文色，所以
+ *   深色主题 → 正文浅 → 滚动块浅色半透明
+ *   浅色主题 → 正文深 → 滚动块深色半透明
+ * 一套规则同时适配明暗两种主题，用户换主题时滚动条自动跟着变，不用维护色表。
+ *
+ * 先写一条 rgba 兜底，再写 color-mix —— 不认识 color-mix 的环境忽略后者。
+ */
+#write::-webkit-scrollbar,
+#jd-tree::-webkit-scrollbar,
+#jd-outline::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+#write::-webkit-scrollbar-track,
+#jd-tree::-webkit-scrollbar-track,
+#jd-outline::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#write::-webkit-scrollbar-thumb,
+#jd-tree::-webkit-scrollbar-thumb,
+#jd-outline::-webkit-scrollbar-thumb {
+  background-color: rgba(128, 128, 128, 0.35);
+  background-color: color-mix(in srgb, currentColor 22%, transparent);
+  /* 透明边框 + background-clip：滑块比轨道窄一圈，看起来是细条而不是粗块 */
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+  min-height: 36px;
+}
+
+#write::-webkit-scrollbar-thumb:hover,
+#jd-tree::-webkit-scrollbar-thumb:hover,
+#jd-outline::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(128, 128, 128, 0.55);
+  background-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+
+/* 横向滚动条两侧的转角在透明轨道下会露出一个方块 */
+#write::-webkit-scrollbar-corner,
+#jd-tree::-webkit-scrollbar-corner,
+#jd-outline::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* ---------------------------------------------------------------- 行级布局（这段是正确性，不是审美）

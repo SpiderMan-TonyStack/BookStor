@@ -112,10 +112,22 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 后三层由 `renderer/theme.ts` 在**运行时** append 到 `<head>` 末尾。
 **不要用 `@layer`**：CM6 运行时注入的样式是未分层的，未分层永远压过分层，一分层反而被反噬。
 
-`theme-fix.css` 里还压了两条**外壳级强制项**（不属于主题表达范围，对所有主题一致）：
+`theme-fix.css` 里还压了三条**外壳级强制项**（不属于主题表达范围，对所有主题一致）：
 
-- 正文区 `max-width: 90%` —— 各主题自带的阅读宽度（80em / 860px）在宽屏上留白过多
+- 正文区 `max-width: 90%` —— 各主题自带的阅读宽度（80em / 860px）在宽屏上留白过多。
+  **限宽只能挂在 `.cm-editor` 上**：`#write` 自己是滚动容器，给它限宽会把滚动条一起拽到 90% 那条线上（详见「已知的坑」）
 - 所有行级元素 `margin: 0 !important` —— CM6 的行块测不到 margin，详见「已知的坑」里那条
+- 滚动条自绘 —— 颜色由 `color-mix(in srgb, currentColor 22%, transparent)` 从主题正文色派生，
+  深浅主题自动适配，不用维护色表。主题自己写了 `--scrollbar-color` + `!important` 时以主题为准
+
+## 原生标题栏跟随主题明暗
+
+顶部那一条是 Windows 画的（DWM），渲染层的 CSS 碰不到。所以主题切换后由渲染层算一次
+body 背景的**感知亮度**（ITU-R BT.601 加权，别用三通道平均值 —— 深蓝深红会判错），
+通过 `app:titlebar-theme` 交给主进程设 `nativeTheme.themeSource`，Windows 才会把标题栏
+（含右上角三个按钮）切成深色或浅色。
+
+只能表达「深 / 浅」两档。想精确到主题那个具体色值（比如 `#262626`）必须改成无边框自绘标题栏。
 
 ## 已知的坑（都踩过，记下来省时间）
 
@@ -138,6 +150,8 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 | `.cm-scroller` 不是这个项目的滚动容器 | `style.css` 把 `.cm-scroller` 设成 `overflow: visible`（为了让主题的 `#write` 内边距/背景生效），真正滚动的是外层 `#write`。两个后果：`EditorView.scrollIntoView()` **不生效**；换笔记也不会自己回顶部。都得手动操作 `#write.scrollTop` |
 | `requestAnimationFrame` 在窗口不可见时**完全暂停** | 最小化 / 被遮挡 / 自动化里没抢到前台时 `visibilityState=hidden`，实测 600ms 内 rAF 回调 **0 次**。任何「滚动定位 / 延迟校正 / 动画」都不能只挂 rAF——表现是「点了没反应」，而且只有特定环境才复现。改用 `setTimeout` 链（隐藏页面只是节流，不会彻底停摆） |
 | 滚动定位要迭代校正 | CM6 对没渲染过的行只有**估算**高度，滚过去之后才真正渲染、内容重排，位置又偏了（实测一次校正在靠后标题上偏 400px）。做法是递增延迟 30/60/90ms 连校 3 轮，误差收进 4px |
+| 限宽别加在滚动容器上 | 想让正文占 90% 时，`max-width` 一度写在 `#write` 上——而 `#write` 就是滚动容器，滚动条跟着被拽到 90% 处，右边留一大条空白，看着像滚动条脱离了窗口。限宽必须下沉到不参与滚动的 `.cm-editor`，滚动条才贴得住窗口右缘 |
+| `::-webkit-scrollbar-thumb` 的 `currentColor` 是**容器**的颜色 | 所以滚动块颜色可以直接从主题正文色派生，不用为每个主题配一个滚动条色。但主题若写了 `background: var(--scrollbar-color) !important`（dyzj 系列就是这样），主题赢——这是主题的表达，别去压 |
 
 ## 数据安全怎么做的
 

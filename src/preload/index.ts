@@ -29,6 +29,7 @@ contextBridge.exposeInMainWorld('api', {
   saveSidebarWidth: (w: number) => ipcRenderer.invoke('app:setSidebarWidth', w),
 
   setDirty: (value: boolean) => ipcRenderer.send('app:dirty', value),
+  setTitleBarTheme: (mode: 'dark' | 'light') => ipcRenderer.send('app:titlebar-theme', mode),
   quitNow: () => ipcRenderer.send('app:quit-now'),
 
   onMenu: (cb: (cmd: string) => void) => {

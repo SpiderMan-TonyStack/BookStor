@@ -103,6 +103,11 @@ declare global {
       saveSidebarWidth(w: number): Promise<number>
       /** 把「有未保存改动」告诉主进程，关窗时用它决定拦不拦 */
       setDirty(value: boolean): void
+      /**
+       * 让 Windows 原生标题栏跟着主题明暗走。
+       * 标题栏是系统画的，CSS 碰不到；只能让主进程设 nativeTheme.themeSource。
+       */
+      setTitleBarTheme(mode: 'dark' | 'light'): void
       /** 存完盘后主动退出（主进程的「保存并关闭」走这条） */
       quitNow(): void
       onMenu(cb: (cmd: string) => void): void

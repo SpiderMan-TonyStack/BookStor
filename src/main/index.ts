@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
@@ -318,6 +318,23 @@ ipcMain.handle('app:setLastFile', async (_e, filePath: string) => {
 /** 渲染层每次 dirty 状态变化都推上来，主进程关窗时据此决定要不要拦 */
 ipcMain.on('app:dirty', (_e, value: boolean) => {
   rendererDirty = value
+})
+
+/**
+ * 原生标题栏跟随主题明暗。
+ *
+ * 标题栏那一行是 Windows 画的（DWM），渲染层的 CSS 完全够不着 ——
+ * 主题切成深色后，正文一片黑、标题栏还是浅灰，割裂感很明显。
+ * nativeTheme.themeSource 是唯一能影响它的开关：设成 dark 后 Windows
+ * 会把标题栏（含右上角三个按钮）切成深色。
+ *
+ * 只传 'dark' | 'light' 两种，因为系统标题栏本来就只有这一档；
+ * 想精确到主题那个具体色值（比如 #262626）必须改成无边框自绘标题栏。
+ */
+ipcMain.on('app:titlebar-theme', (_e, mode: unknown) => {
+  if (mode !== 'dark' && mode !== 'light') return
+  if (nativeTheme.themeSource === mode) return
+  nativeTheme.themeSource = mode
 })
 
 /** 侧栏宽度：拖一下记住，下次启动还原 */
