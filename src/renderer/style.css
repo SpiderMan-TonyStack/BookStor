@@ -131,6 +131,14 @@ body {
   padding: 8px 0 7px;
   font-family: inherit;
   font-size: 13px;
+  /* 居中用 flex，不用 text-align。
+     实测：`.jd-tab { text-align: center }` 规则确实被应用了（`flex: 1 1 0`
+     平分宽度是生效的，两个按钮各 120px），但 Chromium 里 button 的内部
+     匿名盒不认这条，getComputedStyle 依然是 left，文字贴着左边、
+     「大纲」卡在中线上。改成 flex 居中才是可靠的。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #8a8f98;
   cursor: pointer;
   transition: color 120ms;

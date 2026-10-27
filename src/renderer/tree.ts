@@ -31,22 +31,25 @@ function buildNode(node: FileNode, depth: number, opts: TreeOptions): HTMLElemen
   const row = document.createElement('div')
   row.className = 'jd-node'
   if (!node.isDir && node.path === opts.activePath) row.classList.add('is-active')
-  row.style.paddingLeft = `${8 + depth * 14}px`
+  // 每层 20px：14px 时父子缩进差太小，看着像同一级（Rider 侧栏的层级感更明显）
+  row.style.paddingLeft = `${8 + depth * 20}px`
   row.title = node.path
 
+  const caret = document.createElement('span')
+  caret.className = 'jd-caret'
   if (node.isDir) {
-    const caret = document.createElement('span')
-    caret.className = 'jd-caret'
     caret.textContent = '▼'
-    const isCollapsed = collapsed.has(node.path)
-    if (isCollapsed) caret.classList.add('collapsed')
-    row.append(caret)
+    if (collapsed.has(node.path)) caret.classList.add('collapsed')
+  } else {
+    // 文件行也放一个同宽的占位：否则文件图标比文件夹图标左移 18px，
+    // 视觉上「文件比它的父文件夹还靠左」，层级感直接没了。
+    caret.textContent = ''
   }
-  // 文件行不放箭头，靠图标区分（和 Rider 的侧栏一致）
+  row.append(caret)
 
   const icon = document.createElement('span')
   icon.className = 'jd-icon'
-  icon.textContent = node.isDir ? (collapsed.has(node.path) ? '📁' : '📂') : '📄'
+  icon.textContent = node.isDir ? '📁' : '📄'
   row.append(icon)
 
   const name = document.createElement('span')
@@ -69,9 +72,6 @@ function buildNode(node: FileNode, depth: number, opts: TreeOptions): HTMLElemen
       else collapsed.delete(node.path)
       children.classList.toggle('hidden', nowCollapsed)
       row.querySelector('.jd-caret')?.classList.toggle('collapsed', nowCollapsed)
-      // 文件夹图标跟着开/合切换
-      const iconEl = row.querySelector('.jd-icon')
-      if (iconEl) iconEl.textContent = nowCollapsed ? '📁' : '📂'
     })
   } else {
     wrap.append(row)
