@@ -1,0 +1,321 @@
+/*
+ * rider-dark —— JetBrains Rider / IntelliJ「Darcula」配色
+ *
+ * 取色依据：Rider 编辑器默认深色方案（Darcula）。
+ *   背景 #2b2b2b   正文 #a9b7c6   关键字 #cc7832   字符串 #6a8759
+ *   数字 #6897bb   方法名 #ffc66d  枚举/字段 #9876aa  注释 #808080
+ *   预处理 #bbb529 分隔线 #3c3f41  选中 #214283
+ *
+ * 代码高亮这一节**必须**写成 `.cm-s-inner .cm-xxx` 的形式：
+ * 简牍的翻译管线会把 `.cm-s-inner` 这类 CodeMirror 5 作用域剥掉，
+ * 再把 `.cm-*` 改名成 CM6 `classHighlighter` 输出的 `.tok-*`。
+ * 直接写 `.tok-keyword` 反而不行 —— 主题是活的 CSS，两边都要能跑。
+ *
+ * 同时这也是一个标准 Typora 主题，丢进 Typora 的 themes 目录即可使用。
+ */
+
+:root {
+  --bg-color: #2b2b2b;
+  --text-color: #a9b7c6;
+  --muted-color: #808080;
+  --border-color: #3c3f41;
+  --accent-color: #4b6eaf;
+  --code-bg: #232323;
+  --inline-code-bg: #3c3f41;
+  --selection-bg: #214283;
+  --link-color: #287bde;
+
+  --jd-code-bg: #232323;
+  --jd-code-border: #3c3f41;
+
+  /* theme-base.css 的代码字体读这个变量；不设就退化到 Consolas */
+  --code-font: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+}
+
+html,
+body {
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  font-family: 'Source Han Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-size: 15px;
+}
+
+#write {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 32px 40px 180px;
+  font-family: 'Source Han Sans SC', 'Microsoft YaHei', 'Segoe UI', sans-serif;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--text-color);
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: #ffffff;
+}
+
+/* ---------------------------------------------------------------- 标题 */
+
+#write h1,
+#write h2,
+#write h3,
+#write h4,
+#write h5,
+#write h6 {
+  color: #d7dae0;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 1.9em 0 0.7em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid var(--border-color);
+}
+
+#write h1 {
+  font-size: 2em;
+}
+#write h2 {
+  font-size: 1.55em;
+}
+#write h3 {
+  font-size: 1.3em;
+}
+#write h4 {
+  font-size: 1.12em;
+}
+#write h5,
+#write h6 {
+  font-size: 1em;
+  color: var(--text-color);
+  border-bottom: none;
+}
+
+#write h1:first-child,
+#write h2:first-child {
+  margin-top: 0;
+}
+
+/* ---------------------------------------------------------------- 正文 */
+
+#write p {
+  margin: 0.75em 0;
+  line-height: 1.75;
+}
+
+#write strong {
+  color: #d7dae0;
+  font-weight: 700;
+}
+
+#write em {
+  color: #c9d1d9;
+  font-style: italic;
+}
+
+#write del {
+  color: var(--muted-color);
+}
+
+#write a {
+  color: var(--link-color);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(40, 123, 222, 0.35);
+}
+
+#write a:hover {
+  border-bottom-color: var(--link-color);
+}
+
+#write mark {
+  background: #4b6eaf;
+  color: #ffffff;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+#write hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 2em 0;
+}
+
+/* ---------------------------------------------------------------- 列表 */
+
+#write ul,
+#write ol {
+  padding-left: 1.8em;
+  margin: 0.6em 0;
+}
+
+#write li {
+  margin: 0.28em 0;
+  line-height: 1.7;
+}
+
+#write li::marker {
+  color: #6c7a89;
+}
+
+#write ul li::marker {
+  color: #8a919c;
+}
+
+/* ---------------------------------------------------------------- 引用 */
+
+#write blockquote {
+  margin: 1em 0;
+  padding: 0.5em 1em;
+  color: #9aa6b2;
+  background: rgba(60, 63, 65, 0.35);
+  border-left: 3px solid #4b6eaf;
+  border-radius: 0 4px 4px 0;
+}
+
+#write blockquote p {
+  margin: 0.35em 0;
+}
+
+/* ---------------------------------------------------------------- 表格 */
+
+#write table {
+  border-collapse: collapse;
+  width: auto;
+  margin: 1.1em 0;
+  font-size: 0.94em;
+}
+
+#write table th {
+  background: var(--border-color);
+  color: #d7dae0;
+  font-weight: 700;
+  padding: 6px 13px;
+  border: 1px solid #4a4d4f;
+}
+
+#write table td {
+  padding: 6px 13px;
+  border: 1px solid #4a4d4f;
+  color: var(--text-color);
+}
+
+#write table tr:nth-child(2n) td {
+  background: rgba(60, 63, 65, 0.28);
+}
+
+/* ---------------------------------------------------------------- 代码 */
+
+/* 行内代码：Darcula 里行内代码没有背景，这里给一档很浅的底以便和正文区分 */
+#write code {
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.9em;
+  color: #a9b7c6;
+  background: var(--inline-code-bg);
+  padding: 0.12em 0.36em;
+  border-radius: 3px;
+}
+
+/* 代码块：Rider 里整片都是同一个底色，这里给略深一档，便于和正文段落分界 */
+#write pre.md-fences {
+  background: var(--code-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- 代码高亮（Darcula）
+ *
+ * 这些选择器会在简牍里被翻译成 .tok-*；在 Typora 里则原样生效。
+ * 两边同一份值，改一处两边都对。
+ */
+
+.cm-s-inner .cm-keyword {
+  color: #cc7832;
+  font-weight: normal;
+}
+.cm-s-inner .cm-atom {
+  color: #cc7832;
+}
+.cm-s-inner .cm-number {
+  color: #6897bb;
+}
+.cm-s-inner .cm-def {
+  color: #ffc66d;
+}
+.cm-s-inner .cm-variable {
+  color: #a9b7c6;
+}
+.cm-s-inner .cm-variable-2 {
+  color: #9876aa;
+}
+/* 类型名在 Darcula 里是正文色，不是紫色 —— 紫色留给静态字段/枚举常量（variable-2） */
+.cm-s-inner .cm-variable-3 {
+  color: #a9b7c6;
+}
+.cm-s-inner .cm-property {
+  color: #ffc66d;
+}
+/* 注意：这里**不要**写 .cm-attribute 规则。
+   mapping.json 把 cm-property 和 cm-attribute 都映射到 tok-propertyName，
+   两条规则落在同一个类上，后出现的会覆盖前面的 —— 实测 cm-attribute 的 #bababa
+   把方法/属性该有的金黄 #ffc66d 盖成了灰白。 */
+.cm-s-inner .cm-operator {
+  color: #a9b7c6;
+}
+.cm-s-inner .cm-string {
+  color: #6a8759;
+}
+.cm-s-inner .cm-string-2 {
+  color: #6a8759;
+}
+.cm-s-inner .cm-comment {
+  color: #808080;
+  font-style: normal;
+}
+.cm-s-inner .cm-tag {
+  color: #e8bf6a;
+}
+.cm-s-inner .cm-bracket {
+  color: #a9b7c6;
+}
+.cm-s-inner .cm-builtin {
+  color: #8888c6;
+}
+.cm-s-inner .cm-qualifier {
+  color: #9876aa;
+}
+.cm-s-inner .cm-meta {
+  color: #bbb529;
+}
+.cm-s-inner .cm-link {
+  color: #287bde;
+}
+.cm-s-inner .cm-error {
+  color: #bc3f3c;
+}
+
+/* 代码块本体的默认字色：没被任何 token 命中的字符（空格、标点等） */
+.cm-s-inner {
+  color: #a9b7c6;
+}
+
+/* ---------------------------------------------------------------- 图片 */
+
+#write img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+/* ---------------------------------------------------------------- 杂项 */
+
+#write kbd {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--border-color);
+  color: #d7dae0;
+  border: 1px solid #4a4d4f;
+  border-radius: 3px;
+  padding: 0.1em 0.4em;
+}
