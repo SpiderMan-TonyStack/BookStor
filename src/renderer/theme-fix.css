@@ -30,14 +30,88 @@
   border-bottom-right-radius: 0;
 }
 
+/* ---------------------------------------------------------------- 行级布局（这段是正确性，不是审美）
+ *
+ * CM6 的每一行（.cm-line）是独立的 block，**行与行之间的 margin 不参与它的
+ * 高度模型**：CM6 按「各行 height 之和」推算某一行在文档里的位置，而 margin
+ * 把真实 DOM 往下推了，两边越差越多。后果不是"间距不好看"，而是：
+ *   - 点代码块里的字 → 光标落到下面几行（posAtCoords 反查到错误的行）
+ *   - 选中文本 → 高亮画在别的位置
+ *   - 滚动条位置、大纲跳转的落点也跟着偏
+ *
+ * 实测一篇 38 行的笔记：34 行带 margin（主题给 p 的 11.25px、h1 的 21px，
+ * 加上本文件给代码块首末行的 13.5px），累计 674px 全在模型之外，
+ * 视觉跨度 1267px vs 行高总和 922px —— 差 345px。
+ *
+ * 所以行级 margin 一律清零，间距改用 **padding**：
+ * padding 算在元素高度里，CM6 量得到，点击/选区/滚动才对得上。
+ * 数值比原 margin 略小 —— margin 相邻会塌陷（取较大者），padding 是直接相加。
+ */
+
+#write .jd-h1,
+#write .jd-h2,
+#write .jd-h3,
+#write .jd-h4,
+#write .jd-h5,
+#write .jd-h6,
+#write .jd-p,
+#write .jd-li,
+#write .jd-quote,
+#write .jd-task,
+#write .jd-code-block,
+#write .jd-code-line,
+#write .jd-table-row,
+#write .jd-hr,
+#write .jd-blank {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+#write .jd-h1 {
+  padding-top: 0.42em;
+  padding-bottom: 0.3em;
+}
+
+#write .jd-h2 {
+  padding-top: 0.4em;
+  padding-bottom: 0.26em;
+}
+
+#write .jd-h3 {
+  padding-top: 0.34em;
+  padding-bottom: 0.2em;
+}
+
+#write .jd-h4,
+#write .jd-h5,
+#write .jd-h6 {
+  padding-top: 0.3em;
+  padding-bottom: 0.16em;
+}
+
+#write .jd-p {
+  padding-top: 0.16em;
+  padding-bottom: 0.16em;
+}
+
+#write .jd-li,
+#write .jd-task {
+  padding-top: 0.05em;
+  padding-bottom: 0.05em;
+}
+
+#write .jd-quote {
+  padding-top: 0.18em;
+  padding-bottom: 0.18em;
+}
+
+/* 代码块上下的留白也必须是 padding（原来是 margin，正是错位的来源之一） */
 #write .jd-code-first {
-  padding-top: 0.8em;
-  margin-top: 0.9rem;
+  padding-top: 1.1em;
 }
 
 #write .jd-code-last {
-  padding-bottom: 0.8em;
-  margin-bottom: 0.9rem;
+  padding-bottom: 1.1em;
 }
 
 /* 围栏行（```cpp）在 Typora 里是被隐藏的。我们保留它（否则没法点进去编辑）
