@@ -15,7 +15,24 @@
 
 import { promises as fs } from 'node:fs'
 import * as path from 'node:path'
-import { decodeBuffer, encodeText } from '../src/main/lossless.ts'
+
+// 直接 import .ts 依赖 Node ≥ 22.18 的类型剥离（本机 v22.22 可用）。
+// 用动态 import 是为了在低版本 Node 上给一句人话，而不是甩一堆
+// ERR_UNKNOWN_FILE_EXTENSION —— 这个脚本是「无损」红线的守门人，
+// 它挂了必须一眼看懂为什么挂。
+let lossless
+try {
+  lossless = await import('../src/main/lossless.ts')
+} catch (err) {
+  console.error(
+    '✗ 加载 src/main/lossless.ts 失败\n' +
+      `  当前 Node ${process.version}。本脚本直接 import TypeScript 源码，\n` +
+      '  需要 Node ≥ 22.18（内置类型剥离），或加 --experimental-strip-types 运行。\n' +
+      `  原始错误：${err && err.message ? err.message : String(err)}`
+  )
+  process.exit(2)
+}
+const { decodeBuffer, encodeText } = lossless
 
 const LIB = process.argv[2] ?? 'D:\\BaiduSyncdisk\\笔记'
 const BROKEN_BASELINE = 94

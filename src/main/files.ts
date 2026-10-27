@@ -4,14 +4,15 @@ import { randomBytes } from 'node:crypto'
 import type { FileNode, NoteDoc, SaveResult, BrokenImage, SaveMeta } from '../shared/types.js'
 import { atomicWrite, decodeBuffer, encodeText } from './lossless.js'
 
-/** 隐藏目录不入树（策划案 §5.8） */
-const HIDDEN = new Set(['.obsidian', '.git', '.workbuddy', '.pandoc-3.6.4', '.主题', 'node_modules'])
-
-function isHidden(name: string): boolean {
-  if (HIDDEN.has(name)) return true
-  // .xxx.assets 附件目录也不入树
-  return name.startsWith('.') && name.endsWith('.assets')
-}
+/**
+ * 非点开头的黑名单（策划案 §5.8）。
+ *
+ * 点开头的目录/文件在 walk 里已统一跳过（.git、.obsidian、.pandoc-3.6.4、
+ * .xxx.assets 附件目录、.gitignore 全在其中），所以这里**只列非点开头**的。
+ * 之前这里列了一堆点开头的名字，配合下面两处重复的 isHidden 判断，
+ * 实际全是死代码 —— 删掉不改变行为，只是让「为什么这行不显示」有唯一解释。
+ */
+const HIDDEN = new Set(['node_modules'])
 
 /** 让 .md 排在目录之后、同层内按名称自然排序（文件树好看） */
 function sortNodes(a: FileNode, b: FileNode): number {
@@ -30,11 +31,11 @@ export async function listTree(root: string): Promise<FileNode[]> {
     }
     const nodes: FileNode[] = []
     for (const e of entries) {
-      if (e.name.startsWith('.') && isHidden(e.name)) continue
-      if (e.name.startsWith('.')) continue // 其余点开头的（.gitignore 等）也不显示
+      // 点开头的一律不入树：隐藏目录、附件目录、.gitignore 之类都不该出现在文件树里
+      if (e.name.startsWith('.')) continue
+      if (HIDDEN.has(e.name)) continue
       const full = path.join(dir, e.name)
       if (e.isDirectory()) {
-        if (isHidden(e.name)) continue
         nodes.push({ name: e.name, path: full, isDir: true, children: await walk(full, depth + 1) })
       } else if (e.isFile() && /\.(md|markdown|txt)$/i.test(e.name)) {
         nodes.push({ name: e.name, path: full, isDir: false })

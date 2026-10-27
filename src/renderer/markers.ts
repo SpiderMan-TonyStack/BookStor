@@ -357,7 +357,7 @@ function buildDecorations(view: EditorView): DecorationSet {
           deco: Decoration.widget({
             widget: ordered
               ? new MarkerWidget('ordered', mark.includes('.') ? `${mark.replace(/[.)]$/, '')}.` : `${mark.replace(/[.)]$/, '')})`)
-              : new MarkerWidget('bullet', bulletChar(mark)),
+              : new MarkerWidget('bullet', BULLET),
             side: 1,
           }),
         })
@@ -377,10 +377,18 @@ function buildDecorations(view: EditorView): DecorationSet {
   return builder.finish()
 }
 
-function bulletChar(mark: string): string {
-  // 与 Typora 默认主题一致：三级用实心点、二级空心圈、一级方块
-  return '•'
-}
+/**
+ * 无序列表的项目符号。
+ *
+ * 原实现叫 `bulletChar(mark)`，注释写着「三级实心点、二级空心圈、一级方块」，
+ * 但函数体直接 `return '•'`、参数根本没用 —— 注释承诺的层级区分从来没实现。
+ *
+ * 现在保持统一实心点，并把话说清楚：我们的列表是**逐行的 class**，不是真实的
+ * 嵌套 `<ul>`，层级只能靠行首缩进猜。缩进风格在库里并不统一（2/4 空格混用），
+ * 猜错会出现「同级列表符号不一样」，比不区分更难看。
+ * 真要做，得先有可靠的列表栈（按列表项缩进对齐），那是另一件事。
+ */
+const BULLET = '•'
 
 export const markdownMarksPlugin = ViewPlugin.fromClass(
   class {
