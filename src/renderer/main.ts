@@ -2,6 +2,7 @@ import type { FileNode, NoteDoc } from '../shared/types.js'
 import { renderTree, setActive } from './tree.js'
 import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, type EditorHandle } from './editor.js'
 import { applyTheme, reloadTheme, currentThemeReport } from './theme.js'
+import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -24,6 +25,9 @@ const elRecoverYes = $<HTMLButtonElement>('jd-recover-yes')
 const elRecoverNo = $<HTMLButtonElement>('jd-recover-no')
 const elSidebar = $('jd-sidebar')
 const elSidebarResize = $('jd-sidebar-resize')
+const elOutlineWrap = $('jd-outline-wrap')
+const elOutline = $('jd-outline')
+const elWrite = $('write')
 
 // ------------------------------------------------------------------ 状态
 
@@ -34,6 +38,8 @@ let saving = false
 let saveTimer: number | null = null
 let editor: EditorHandle | null = null
 let draftTimer: number | null = null
+let outlineItems: OutlineItem[] = []
+let outlineTimer: number | null = null
 
 /**
  * dirty 的唯一写入口。
@@ -63,12 +69,44 @@ function ensureEditor(): EditorHandle {
       setSaveStatus('未保存', 'is-dirty')
       scheduleSave()
       scheduleDraft()
+      scheduleOutline()
     },
     onSaveRequest: () => void doSave(),
     onPasteImage: (file) => void handleImage(file),
     onDropImage: (file) => void handleImage(file),
+    onSelection: (pos) => highlightOutline(elOutline, outlineItems, pos),
   })
   return editor
+}
+
+// ------------------------------------------------------------------ 大纲（M5-1）
+
+/** 重建大纲：打开笔记后、文档改动后调用 */
+function rebuildOutline(): void {
+  if (!editor) {
+    outlineItems = []
+    elOutlineWrap.classList.add('hidden')
+    return
+  }
+  outlineItems = computeOutline(editor.view.state)
+  elOutlineWrap.classList.toggle('hidden', outlineItems.length === 0)
+  renderOutline(elOutline, outlineItems, (pos) => {
+    if (editor) jumpTo(editor.view, pos)
+  })
+  highlightOutline(elOutline, outlineItems, editor.view.state.selection.main.head)
+}
+
+/**
+ * 文档改动后重建大纲，防抖 150ms。
+ * 逐行正则在中位数笔记上是微秒级，但 274KB / 8000 行的大文件要几毫秒，
+ * 挂在每次 docChanged 上会让输入发涩；而大纲晚 150ms 更新没人会察觉。
+ */
+function scheduleOutline(): void {
+  if (outlineTimer !== null) window.clearTimeout(outlineTimer)
+  outlineTimer = window.setTimeout(() => {
+    outlineTimer = null
+    rebuildOutline()
+  }, 150)
 }
 
 function scheduleSave(): void {
@@ -127,6 +165,7 @@ async function offerCrashRecovery(): Promise<void> {
           elStatusSave.textContent = '已恢复草稿（未保存）'
           elStatusSave.className = 'is-dirty'
           setMetaStatus(`已恢复 ${when} 的草稿，检查无误后按 Ctrl+S 写盘`)
+          rebuildOutline()
         } catch (err) {
           setMetaStatus(`草稿恢复失败：${(err as Error).message}`)
           await window.api.clearDraft()
@@ -236,6 +275,18 @@ async function openNote(filePath: string): Promise<void> {
   ed.setDoc(doc.text, dirNameOf(filePath))
   ed.focus()
 
+  // 换笔记要回到顶部。滚动容器是外层的 #write，不是 CM6 的 .cm-scroller
+  // （后者是 overflow:visible，见 outline.ts 的注释），所以不能指望 CM6 自己重置。
+  // 用 setTimeout 而不是 requestAnimationFrame：窗口不可见时 rAF 会被完全暂停
+  // （实测 hidden 状态下 600ms 内一次都不跑），而换笔记这件事在后台也可能发生。
+  // 两次是为了等 setDoc 之后的重新排版稳定下来。
+  setTimeout(() => {
+    elWrite.scrollTop = 0
+  }, 0)
+  setTimeout(() => {
+    elWrite.scrollTop = 0
+  }, 80)
+
   setActive(elTree, filePath)
   elStatusPath.textContent = filePath
   elStatusPath.title = filePath
@@ -252,6 +303,9 @@ async function openNote(filePath: string): Promise<void> {
   if (broken.length > 0) {
     setMetaStatus(`${bits.join(' · ')} · ⚠ 裂图 ${broken.length}`)
   }
+
+  // 新笔记的大纲：标题全变了，必须整棵重建
+  rebuildOutline()
 }
 
 function fmtSize(n: number): string {

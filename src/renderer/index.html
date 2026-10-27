@@ -26,6 +26,12 @@
         <button id="jd-open-lib" title="打开笔记库 (Ctrl+O)">打开</button>
       </div>
       <div id="jd-tree" role="tree"></div>
+      <!-- 大纲（M5-1）：标题列表，点一下跳到对应位置。
+           没有标题时整块隐藏（main.ts 控 hidden）。 -->
+      <div id="jd-outline-wrap" class="hidden">
+        <div id="jd-outline-head">大纲</div>
+        <div id="jd-outline" role="list"></div>
+      </div>
       <div id="jd-sidebar-foot">
         <label for="jd-theme">主题</label>
         <select id="jd-theme">

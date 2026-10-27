@@ -11,7 +11,8 @@
 | M2 像 Typora | 块级语法显隐、图片渲染与裂图占位、表格真渲染、快捷键 | ✅ |
 | M3 主题（核心） | `@import` 递归内联、`url()` 重写、选择器映射、热重载 | ✅ |
 | M4 桌面感 | 原生菜单、窗口记忆、上次文件恢复、侧栏可拖宽、图标、单实例、打包 exe | ✅ |
-| M5 加料 | 表格面板、大纲、折叠、专注模式、Mermaid、PDF | ⬜ |
+| M5 大纲 | 侧栏标题树、点击跳转（4px 内对齐）、当前章节高亮、**代码块里的 `#` 不算标题** | ✅ |
+| M5 其余 | 表格面板、折叠、专注模式、Mermaid、PDF | ⬜ |
 
 策划案（含本机实测数据、技术决策与被推翻的假设）见 [docs/01-策划案.md](docs/01-策划案.md)。
 
@@ -54,6 +55,7 @@ src/
     fence.ts       围栏状态机（按开启缩进配对），lineclasses 与 markers 共用同一份判断
     markers.ts     语法标记显隐 + 图片 widget（font-size:0 隐藏，不改文本）
     table.ts       表格真渲染（StateField 块装饰；光标进表退回源码）
+    outline.ts     大纲（标题树 / 点击跳转 / 当前章节高亮；复用 fence.ts 跳过代码块）
     theme.ts       主题注入层（五层 CSS 顺序是契约）
     tree.ts        文件树
   shared/types.ts  IPC 类型
@@ -101,6 +103,9 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 | 代码块没高亮 ≠ 丢了主题 | 主题的 token 配色写成 `.cm-s-inner .cm-keyword{color:…}`（CodeMirror **5** 的作用域类）。我们的 DOM 没有 `.cm-s-inner`，规则照搬过来永远不命中 → 代码块有底色有框，但一个字都不变色。解法是翻译时把 `.cm-s-inner`/`.CodeMirror*` 剥掉、`.cm-*` 映射成 CM6 `classHighlighter` 产出的 `.tok-*`；剥完只剩裸标签的规则必须丢弃，否则裸 `div` 命中全页 |
 | 围栏缩进不能简单放宽 | 列表项嵌套会让围栏带 4–8 空格缩进（库内 183 行/10 文件），但代码块**内部**也有深缩进的 ` ``` `。把 `{0,3}` 直接改成 `{0,8}` 会让后者把块提前关掉，实测净减 8206 行。正解是「按开启时的缩进配对」：块内只有缩进 ≤ 开启缩进的围栏才算关闭（见 `renderer/fence.ts`） |
 | 围栏行不能用 opacity 淡化 | 围栏行是代码块上/下边框的载体，`opacity:0.35` 会连 `border` 和 `background` 一起打到 35%，深色主题下「代码块看不出是块」就是这么来的。只淡化文字颜色（`color-mix`） |
+| `.cm-scroller` 不是这个项目的滚动容器 | `style.css` 把 `.cm-scroller` 设成 `overflow: visible`（为了让主题的 `#write` 内边距/背景生效），真正滚动的是外层 `#write`。两个后果：`EditorView.scrollIntoView()` **不生效**；换笔记也不会自己回顶部。都得手动操作 `#write.scrollTop` |
+| `requestAnimationFrame` 在窗口不可见时**完全暂停** | 最小化 / 被遮挡 / 自动化里没抢到前台时 `visibilityState=hidden`，实测 600ms 内 rAF 回调 **0 次**。任何「滚动定位 / 延迟校正 / 动画」都不能只挂 rAF——表现是「点了没反应」，而且只有特定环境才复现。改用 `setTimeout` 链（隐藏页面只是节流，不会彻底停摆） |
+| 滚动定位要迭代校正 | CM6 对没渲染过的行只有**估算**高度，滚过去之后才真正渲染、内容重排，位置又偏了（实测一次校正在靠后标题上偏 400px）。做法是递增延迟 30/60/90ms 连校 3 轮，误差收进 4px |
 
 ## 数据安全怎么做的
 

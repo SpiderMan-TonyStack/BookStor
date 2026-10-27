@@ -122,6 +122,78 @@ body {
   line-height: 1.5;
 }
 
+/* ---------------------------------------------------------------- 大纲（M5-1） */
+/*
+ * 放在文件树下面，高度上限 42% —— 两个都看得见，不用切 tab。
+ * 文件树本身 flex:1 会自动让出空间；大纲为空时整块隐藏。
+ */
+
+#jd-outline-wrap {
+  flex: 0 0 auto;
+  max-height: 42%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--jd-border);
+}
+
+#jd-outline-wrap.hidden {
+  display: none;
+}
+
+#jd-outline-head {
+  flex: 0 0 auto;
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: #6f6f6f;
+}
+
+#jd-outline {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding-bottom: 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.jd-outline-item {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  padding-right: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--jd-sidebar-fg);
+  border-left: 2px solid transparent;
+}
+
+.jd-outline-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.jd-outline-item.is-current {
+  color: var(--jd-accent);
+  border-left-color: var(--jd-accent);
+  background: rgba(0, 196, 182, 0.08);
+}
+
+.jd-outline-lv1 {
+  font-weight: 600;
+}
+
+.jd-outline-lv2 {
+  font-weight: 500;
+}
+
+.jd-outline-empty {
+  padding: 4px 12px;
+  color: #5f5f5f;
+  font-size: 12px;
+}
+
 .jd-node {
   display: flex;
   align-items: center;

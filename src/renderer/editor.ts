@@ -53,6 +53,8 @@ export interface EditorCallbacks {
   onPasteImage: (file: File) => void
   onSaveRequest: () => void
   onDropImage: (file: File) => void
+  /** 选区/光标变了（大纲高亮当前章节用） */
+  onSelection?: (pos: number) => void
 }
 
 export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHandle {
@@ -102,6 +104,7 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
     // --- 编辑行为
     EditorView.updateListener.of((u) => {
       if (u.docChanged) cb.onChange(u.state.doc.toString())
+      if (u.selectionSet && cb.onSelection) cb.onSelection(u.state.selection.main.head)
     }),
 
     // --- 粘贴 / 拖入图片

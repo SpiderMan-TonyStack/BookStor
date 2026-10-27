@@ -29,6 +29,9 @@ probe*.log
 shot-*.png
 .ptmp/
 .portable-*/
+# 打包绕行目录：release/win-unpacked/resources/app.asar 被系统进程占用（EBUSY）时，
+# electron-builder 改用 --config.directories.output=.release-tmp 打包，产出再拷回 release/
+.release-tmp/
 
 # 系统垃圾
 Thumbs.db
