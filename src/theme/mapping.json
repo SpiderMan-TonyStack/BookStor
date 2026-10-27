@@ -26,7 +26,7 @@
     "tbody": "jd-table-body",
     "tr": "jd-table-row",
     "td": "jd-table-cell",
-    "th": "jd-table-cell",
+    "th": "jd-table-head-cell",
     "img": "jd-img",
     "pre": "jd-pre",
     "code": "jd-code-inline",

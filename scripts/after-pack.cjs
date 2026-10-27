@@ -18,6 +18,30 @@ const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 
+/** 同步 sleep（afterPack 钩子是同步流程，用 Atomics.wait 而不是 await setTimeout） */
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+}
+
+/**
+ * rcedit 会间歇性报 `Fatal error: Unable to commit changes` —— 实测同一 exe
+ * 手工跑 rcedit 能成功，但在 electron-builder 刚写完 asar 完整性资源后立刻跑
+ * 就会失败，是文件句柄尚未释放导致的瞬时锁。重试即可。
+ */
+function rceditWithRetry(rcedit, args, attempts = 8) {
+  let lastErr = null
+  for (let i = 0; i < attempts; i++) {
+    try {
+      execFileSync(rcedit, args, { stdio: 'pipe' })
+      return { ok: true, tries: i + 1 }
+    } catch (err) {
+      lastErr = err
+      sleepSync(250 * (i + 1))
+    }
+  }
+  return { ok: false, err: lastErr, tries: attempts }
+}
+
 /** rcedit 在 electron-builder 的二进制缓存里（winCodeSign 包附带） */
 function findRcedit() {
   const cacheRoot = path.join(os.homedir(), 'AppData', 'Local', 'electron-builder', 'Cache', 'winCodeSign')
@@ -85,12 +109,12 @@ exports.default = async function afterPack(context) {
     if (info.companyName) args.push('--set-version-string', 'CompanyName', info.companyName)
     if (fs.existsSync(iconPath)) args.push('--set-icon', iconPath)
 
-    try {
-      execFileSync(rcedit, args, { stdio: 'pipe' })
-      console.log(`[afterPack] 已写入 ${fileName} 的图标与版本信息`)
-    } catch (err) {
+    const res = rceditWithRetry(rcedit, args)
+    if (res.ok) {
+      console.log(`[afterPack] 已写入 ${fileName} 的图标与版本信息（第 ${res.tries} 次尝试）`)
+    } else {
       // 图标写不进去不该让构建失败——功能不受影响，只是丑
-      console.warn(`[afterPack] 写 ${fileName} 资源失败：${err.message}`)
+      console.warn(`[afterPack] 写 ${fileName} 资源失败（重试 ${res.tries} 次）：${res.err.message}`)
     }
   }
 }

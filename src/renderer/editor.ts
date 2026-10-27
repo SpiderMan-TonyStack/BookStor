@@ -15,6 +15,7 @@ import { syntaxHighlighting, HighlightStyle, indentOnInput } from '@codemirror/l
 import { tags as t } from '@lezer/highlight'
 import { lineClassPlugin } from './lineclasses.js'
 import { markdownMarksPlugin, docBaseField, setDocBase } from './markers.js'
+import { tableWidgetField } from './table.js'
 
 /**
  * 语法高亮 —— 刻意克制。
@@ -82,6 +83,11 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
 
     // --- 语法标记显隐（M2）：非活动行藏掉 # ** ` > - 1. ![]()
     markdownMarksPlugin,
+
+    // --- 表格渲染：光标不在表内时换成真 <table>（106 篇笔记有表格，T2 要求边框+斑马纹）
+    //     注意它必须是 StateField，**不能**用 ViewPlugin —— CM6 禁止插件提供 block 装饰
+    //     （`RangeError: Block decorations may not be specified via plugins`），见 table.ts 注释。
+    tableWidgetField,
 
     // --- 编辑行为
     EditorView.updateListener.of((u) => {

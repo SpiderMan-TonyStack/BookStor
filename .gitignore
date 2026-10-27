@@ -11,6 +11,7 @@ dist/
 .userdata/
 .userdata-probe/
 .userdata-pack/
+.userdata-shot/
 
 # 测试用笔记库与主题副本（从真实笔记 / Typora 主题目录复制来的样本，
 # 含用户真实笔记内容与第三方主题文件，不进版本库）

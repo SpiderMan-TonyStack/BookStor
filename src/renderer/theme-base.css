@@ -108,3 +108,26 @@ body {
   max-width: 100%;
   height: auto;
 }
+
+/* 表格（typora 的真 <table> 渲染，见 table.ts）。
+   颜色/边框宽度由主题的 table/tr/th/td 规则决定，这里只给结构骨架兜底：
+   border-collapse 是必须的，否则相邻单元格各画一条边，线会变粗一倍。 */
+#write .jd-table-wrap {
+  margin: 0.9rem 0;
+  overflow-x: auto;
+}
+#write table.jd-table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  width: auto;
+  max-width: 100%;
+  font-size: 0.94em;
+}
+#write table.jd-table th,
+#write table.jd-table td {
+  padding: 6px 13px;
+  vertical-align: top;
+}
+#write table.jd-table th {
+  font-weight: 700;
+}
