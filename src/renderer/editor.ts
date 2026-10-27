@@ -244,6 +244,54 @@ export function openSearch(view: EditorView): void {
   openSearchPanel(view)
 }
 
+/**
+ * 插入代码块（三反引号围栏），光标落在块中间，可以直接开始敲代码。
+ *
+ * 和「行内代码」的区别：行内代码插的是一对单个反引号（`x`），
+ * 只能包一行里的一小段；这里是独立成块的围栏，块内可以有任意多行。
+ *
+ * 两种情形：
+ *   - 有选区：把选中的整行包起来（不是只包字符，否则围栏会插在行中间）
+ *   - 无选区：光标在空行上就地把空行变成块；否则在光标处另起一个空块
+ *     （多退一个换行，免得把当前行的后半句挤进代码块里）
+ */
+export function insertCodeBlock(view: EditorView): void {
+  const { from, to } = view.state.selection.main
+  const doc = view.state.doc
+
+  if (from !== to) {
+    const start = doc.lineAt(from).from
+    const end = doc.lineAt(to).to
+    const body = view.state.sliceDoc(start, end)
+    view.dispatch({
+      changes: { from: start, to: end, insert: '```\n' + body + '\n```' },
+      // 光标放到块内正文开头（` ``` ` + 换行 = 4）
+      selection: { anchor: start + 4 },
+      scrollIntoView: true,
+    })
+    view.focus()
+    return
+  }
+
+  const line = doc.lineAt(from)
+  if (line.text.trim() === '') {
+    // 空行：就地把这一行变成「``` + 空行 + ```」
+    view.dispatch({
+      changes: { from: line.from, to: line.to, insert: '```\n\n```' },
+      selection: { anchor: line.from + 4 },
+      scrollIntoView: true,
+    })
+  } else {
+    // 非空行：从光标处断开，另起一个块（前后各留一个换行）
+    view.dispatch({
+      changes: { from, to, insert: '\n```\n\n```\n' },
+      selection: { anchor: from + 5 },
+      scrollIntoView: true,
+    })
+  }
+  view.focus()
+}
+
 /** 把当前行改成 N 级标题（N=0 表示正文），保留缩进之后的内容 */
 export function setHeading(view: EditorView, level: number): void {
   const line = view.state.doc.lineAt(view.state.selection.main.from)

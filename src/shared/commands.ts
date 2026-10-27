@@ -31,6 +31,9 @@ export const COMMANDS: CommandDef[] = [
   { cmd: 'bold', label: '加粗', group: '格式', defaultKey: 'CmdOrCtrl+B' },
   { cmd: 'italic', label: '斜体', group: '格式', defaultKey: 'CmdOrCtrl+I' },
   { cmd: 'code', label: '行内代码', group: '格式', defaultKey: 'CmdOrCtrl+Shift+`' },
+  // 和「行内代码」是两回事：行内代码插一对单反引号（`x`），这个是三反引号的独立代码块。
+  // 默认键沿用 Typora 的习惯（Ctrl+Shift+K），从 Typora 迁过来的人不用重新记。
+  { cmd: 'codeblock', label: '代码块', group: '格式', defaultKey: 'CmdOrCtrl+Shift+K' },
 ]
 
 /** 用户自定义的覆盖表：cmd → accelerator。空表表示全用默认 */

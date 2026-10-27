@@ -90,6 +90,7 @@ async function buildMenu(): Promise<void> {
         mi('bold', keymap),
         mi('italic', keymap),
         mi('code', keymap),
+        mi('codeblock', keymap),
       ],
     },
     {

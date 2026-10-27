@@ -25,6 +25,7 @@ import {
   type CommandDef,
   type Keymap,
 } from '../shared/commands.js'
+import { setKeymapPaused, reloadKeymap } from './keybindings.js'
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T
 
@@ -47,6 +48,9 @@ export async function openSettings(): Promise<void> {
   ensureRefs()
   if (!overlay) return
   overlay.classList.remove('hidden')
+  // 面板开着时暂停快捷键分发：否则点开「保存」的录制框、按下 Ctrl+S，
+  // 会先被 keybindings 拦下来真的保存一次，录制框什么都录不到
+  setKeymapPaused(true)
   const data = await window.api.getKeymap()
   keymap = data.keymap ?? {}
   commands = data.commands && data.commands.length > 0 ? data.commands : COMMANDS
@@ -59,6 +63,7 @@ export function closeSettings(): void {
   if (!overlay) return
   stopCapture()
   overlay.classList.add('hidden')
+  setKeymapPaused(false)
   showMsg('')
 }
 
@@ -198,6 +203,8 @@ function onKeydown(e: KeyboardEvent): void {
 
 async function persist(next: Keymap, okText: string): Promise<void> {
   keymap = await window.api.setKeymap(next)
+  // 让渲染层的分发立刻用上新键（菜单那边主进程已经重建过了）
+  await reloadKeymap()
   render()
   showMsg(okText)
 }

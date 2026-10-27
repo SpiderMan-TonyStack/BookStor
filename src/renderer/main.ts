@@ -1,9 +1,10 @@
 import type { FileNode, NoteDoc } from '../shared/types.js'
 import { renderTree, setActive } from './tree.js'
-import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, type EditorHandle } from './editor.js'
+import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, insertCodeBlock, type EditorHandle } from './editor.js'
 import { applyTheme, reloadTheme, currentThemeReport } from './theme.js'
 import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
 import { openSettings } from './settings.js'
+import { installKeybindings } from './keybindings.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -517,7 +518,22 @@ window.api.onThemeChanged(() => {
 
 // ------------------------------------------------------------------ 菜单命令
 
-window.api.onMenu((cmd) => {
+/**
+ * 执行一条命令。
+ *
+ * 有两个入口会调它：菜单（含菜单 accelerator 触发）和渲染层的快捷键监听
+ * （keybindings.ts）。同一命令两条路径都指向这里，行为不会分叉。
+ *
+ * 60ms 去重：这两条路径谁先谁后取决于 Electron 内部时机，个别组合可能两边都
+ * 收到。不拦一下的话「加粗」会把选区裹两层 `****`。人手不可能 60ms 内按两次同一个键。
+ */
+const lastRun = new Map<string, number>()
+
+export function runCommand(cmd: string): void {
+  const now = performance.now()
+  if (now - (lastRun.get(cmd) ?? 0) < 60) return
+  lastRun.set(cmd, now)
+
   const ed = editor
   switch (cmd) {
     case 'open-library':
@@ -557,11 +573,19 @@ window.api.onMenu((cmd) => {
     case 'code':
       if (ed) wrapSelection(ed.view, '`')
       return
+    case 'codeblock':
+      if (ed) insertCodeBlock(ed.view)
+      return
     case 'settings':
       void openSettings()
       return
   }
-})
+}
+
+window.api.onMenu(runCommand)
+
+// 渲染层自己的快捷键分发：菜单 accelerator 会被 CM6 抢，见 keybindings.ts 的说明
+installKeybindings(runCommand)
 
 // ------------------------------------------------------------------ 启动
 
