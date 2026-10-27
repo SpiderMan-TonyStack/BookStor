@@ -12,7 +12,9 @@ export interface AppConfig {
   autosaveDebounceMs: number
   themeDir: string
   themeName: string
-  /** 崩溃恢复用：未落盘的内容快照 */
+  /** 崩溃恢复用：未落盘的内容快照
+   *  @deprecated 草稿已迁到独立的 draft.json（见 src/main/draft.ts）。
+   *  这里只为**迁移旧配置**保留字段：读到它就搬到 draft.json 并清空。 */
   crashDraft: { path: string; text: string; at: number } | null
 }
 

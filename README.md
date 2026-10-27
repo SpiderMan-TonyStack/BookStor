@@ -44,6 +44,7 @@ src/
     lossless.ts    无损编解码（记录原状 + 写回还原，不猜换行风格）
     files.ts       文件树、读写笔记、图片落盘、裂图扫描
     theme.ts       Typora 主题翻译器（@import 内联 → url() 重写 → 选择器映射）
+    draft.ts       崩溃草稿（独立 draft.json，tmp+fsync+rename，不占 config）
     paths.ts       userData 目录探测（不可写会导致原生崩溃）
     config.ts      配置（剥离 BOM，防手工编辑坏掉）
   preload/         contextBridge 白名单
@@ -63,7 +64,7 @@ src/
 Typora 主题写的是 `#write h1`、`.md-fences`，而 CM6 的行是 `.cm-line`。两边靠两件事对上：
 
 1. **DOM 尽量像 Typora**：外层 `.jd-content`（对应 Typora 的 `content` 元素）包 `#write`。
-2. **选择器映射**：翻译时用 `postcss` + `postcss-selector-parser` 把主题选择器改写成我们的语义 class（见 `src/theme/mapping.json`）。
+2. **选择器映射**：翻译时用 `postcss` + `postcss-selector-parser` 把主题选择器改写成我们的语义 class（见 `src/theme/mapping.json`）。这份 JSON 是**唯一真相源**——代码里的兜底表由构建期内联它生成，不另抄一份。
 
 **为什么运行时翻译而不是把改好的 CSS 存进项目**：换主题、改主题随时发生。热重载让你在 Typora 里改一行、这边 500ms 内跟着变。
 
@@ -94,11 +95,14 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 | CM6 block 装饰只能用 StateField | `ViewPlugin` 提供 block replace 会抛 `RangeError: Block decorations may not be specified via plugins`，后面一堆 `Cannot destructure property 'tile'` 全是它的连锁反应 |
 | 映射表不同标签别共用类名 | `th`/`td` 都映射成 `.jd-table-cell` 会让主题的 `table tr th{background}` 命中所有单元格 → 整表变绿。必须拆成 `jd-table-head-cell` / `jd-table-cell` |
 | 关窗保护不能在渲染层做 | `beforeunload` 里 `void doSave()` 是异步的，窗口已销毁，写盘跑不完。必须主进程 `close` 事件拦 |
+| 映射表别手抄第二份 | 兜底表曾在 `theme.ts` 里另写一份，结果和 `mapping.json` **漂移**：`th`/`td` 又变回共用 `jd-table-cell`、丢了 `code`/`kbd`。漂移不报错，只在「读不到磁盘 mapping.json」时静默回落成过期表（整表变绿），因果极难对上。现在兜底表由构建期**内联同一份 JSON** 生成，磁盘那份仍可热改 |
 
 ## 数据安全怎么做的
 
 - **写盘**：tmp 文件 + `fsync` + rename（同目录，原子）；Windows 上被网盘/杀软占用时重试 6 次。
-- **崩溃恢复**：打字后 **300ms** 写一份草稿到 `config.crashDraft`（比 800ms 的自动保存更早），正常存盘成功后清掉。下次启动若发现草稿，顶部横幅问「恢复 / 丢弃」，**磁盘一个字节都不动**，直到你按 Ctrl+S。
+- **崩溃恢复**：打字后 **300ms** 写一份草稿到**独立的 `draft.json`**（比 800ms 的自动保存更早），正常存盘成功后清掉。下次启动若发现草稿，顶部横幅问「恢复 / 丢弃」，**磁盘一个字节都不动**，直到你按 Ctrl+S。
+  - 为什么不塞进 `config.json`：草稿是每 300ms 一次的**全量重写**，而配置里躺着窗口尺寸、主题名、lastFile。混在一起等于「写草稿失败会连带丢配置」，反过来改个侧栏宽度也要把整篇正文序列化一遍。两者生命周期不同，必须分文件。
+  - 上限按**字节**判（2MB），不按字符——中文一个字 3 字节，按 `.length` 会让实际写入到上限的 3 倍。内容与上次落盘一致时跳过写盘。
 - **关窗拦截**：渲染层把 `dirty` 推给主进程，关窗时若有未保存改动弹三选一（保存并关闭 / 取消 / 放弃改动）。
 - **单实例锁**：多开会让同一文件被两个编辑器互相覆盖。
 - **上次状态**：`lastFile` 记上次打开的文件，重启自动打开；侧栏宽度也能拖拽记住（双击把手恢复 240px）。

@@ -3,6 +3,8 @@ import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import postcss, { type Root, type Rule, type AtRule, type Declaration } from 'postcss'
 import selectorParser from 'postcss-selector-parser'
+// 兜底映射表的唯一真相源：与运行时可编辑的那份是同一个文件（见 DEFAULT_MAPPING 注释）
+import mappingFile from '../theme/mapping.json'
 
 /**
  * Typora 主题翻译管线（策划案 §5.3）。
@@ -123,48 +125,27 @@ const KEEP_TAGS = new Set([
   'label',
 ])
 
-// ------------------------------------------------------------------ 默认映射
+// ------------------------------------------------------------------ 默认映射（单一真相源）
+
+/**
+ * 兜底映射表**直接从 src/theme/mapping.json 内联**，不再手写第二份。
+ *
+ * 之前这里手抄过一份 DEFAULT_MAPPING，结果和 mapping.json 漂移了：
+ *   - `th`/`td` 都写成 jd-table-cell（mapping.json 已拆成 jd-table-head-cell/cell）
+ *   - 少了 `code → jd-code-inline`、`kbd → jd-kbd`（行内代码底色靠这个类）
+ * 这类漂移**不会立刻报错**，只会在「读不到磁盘 mapping.json」时静默回落成过期表，
+ * 表现为整表变绿 / 行内代码没有底色 —— 排查起来极难对上因果。
+ *
+ * 现在：构建期由 rollup 把 JSON 转成对象内联进 main bundle，与磁盘那份**同源**；
+ * 运行时仍然优先读磁盘文件（见 loadMapping），磁盘那份可以热改；
+ * 内联这份只在读不到时兜底，且不存在漂移的可能。
+ */
+const MAPPING_SRC = mappingFile as unknown as Mapping
 
 export const DEFAULT_MAPPING: Required<Mapping> = {
-  tags: {
-    h1: 'jd-h1',
-    h2: 'jd-h2',
-    h3: 'jd-h3',
-    h4: 'jd-h4',
-    h5: 'jd-h5',
-    h6: 'jd-h6',
-    p: 'jd-p',
-    blockquote: 'jd-quote',
-    ul: 'jd-list',
-    ol: 'jd-list-ordered',
-    li: 'jd-li',
-    hr: 'jd-hr',
-    content: 'jd-content',
-    table: 'jd-table',
-    thead: 'jd-table-head',
-    tbody: 'jd-table-body',
-    tr: 'jd-table-row',
-    td: 'jd-table-cell',
-    th: 'jd-table-cell',
-    img: 'jd-img',
-    pre: 'jd-pre',
-  },
-  classes: {
-    'md-fences': 'jd-code-block',
-    'md-task-list-item': 'jd-task',
-    'md-meta-block': 'jd-meta',
-    'md-toc-inner': 'jd-toc-inner',
-    'md-math': 'jd-math',
-    'md-table': 'jd-table',
-    'md-img': 'jd-img',
-    'md-link': 'jd-link',
-    'md-plain': 'jd-plain',
-    'md-raw-inline': 'jd-raw-inline',
-    'md-tag': 'jd-tag',
-  },
-  ids: {
-    'typora-source': 'jd-source',
-  },
+  tags: { ...(MAPPING_SRC.tags ?? {}) },
+  classes: { ...(MAPPING_SRC.classes ?? {}) },
+  ids: { ...(MAPPING_SRC.ids ?? {}) },
 }
 
 // ------------------------------------------------------------------ 1. 内联 @import

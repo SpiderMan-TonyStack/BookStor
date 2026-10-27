@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import { resolveUserDataDir } from './paths.js'
 import { loadConfig, saveConfig, defaultThemeDir } from './config.js'
+import { saveDraft, readDraft, clearDraft } from './draft.js'
 import { listTree, readNote, writeNote, saveImage, scanBrokenImages, scanBrokenImagesOf } from './files.js'
 import { translateTheme, loadMapping, type ThemeResult } from './theme.js'
 import type { SaveMeta, ThemePayload } from '../shared/types.js'
@@ -295,30 +296,17 @@ ipcMain.handle('app:userData', async () => ({
 
 // ------------------------------------------------------------------ 崩溃草稿
 //
-// config.ts 里早就有 crashDraft 字段，但一直没人读写 —— 等于「崩溃恢复」只是
-// 验收表里的一行字。这里补上：
-//   编辑器每次改动 → 防抖写一份全文快照进 config.json
-//   保存成功 / 正常关窗 → 清掉
-//   下次启动若还有快照 → 说明上次没走完正常流程，问用户要不要恢复
-// 快照上限 2MB：再大的文件复制一次的成本（和 config.json 的体积）都不划算，
-// 而且那种文件基本是日志，不是手写笔记。
+// 编辑器每次改动 → 防抖 300ms 写一份全文快照
+// 保存成功 / 正常关窗 → 清掉
+// 下次启动若还有快照 → 说明上次没走完正常流程，问用户要不要恢复
+//
+// 存储在**独立的 draft.json** 里，不再借 config.json 一用：
+// 那是每 300ms 一次的全量重写，和窗口尺寸/主题名混在一个文件里会互相牵连
+// （详见 src/main/draft.ts 顶部注释）。
 
-const DRAFT_MAX = 2 * 1024 * 1024
-
-ipcMain.handle('draft:save', async (_e, filePath: string, text: string) => {
-  if (text.length > DRAFT_MAX) return false
-  await saveConfig({ crashDraft: { path: filePath, text, at: Date.now() } })
-  return true
-})
-
-ipcMain.handle('draft:get', async () => {
-  const cfg = await loadConfig()
-  return cfg.crashDraft
-})
-
-ipcMain.handle('draft:clear', async () => {
-  await saveConfig({ crashDraft: null })
-})
+ipcMain.handle('draft:save', async (_e, filePath: string, text: string) => saveDraft(filePath, text))
+ipcMain.handle('draft:get', async () => readDraft())
+ipcMain.handle('draft:clear', async () => clearDraft())
 
 /** 重启后回到上次那篇笔记（lastFile 字段同理，之前一直空着） */
 ipcMain.handle('app:getLastFile', async () => (await loadConfig()).lastFile)
