@@ -196,6 +196,7 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 | 限宽别加在滚动容器上 | 想让正文占 90% 时，`max-width` 一度写在 `#write` 上——而 `#write` 就是滚动容器，滚动条跟着被拽到 90% 处，右边留一大条空白，看着像滚动条脱离了窗口。限宽必须下沉到不参与滚动的 `.cm-editor`，滚动条才贴得住窗口右缘 |
 | `::-webkit-scrollbar-thumb` 的 `currentColor` 是**容器**的颜色 | 所以滚动块颜色可以直接从主题正文色派生，不用为每个主题配一个滚动条色。但主题若写了 `background: var(--scrollbar-color) !important`（dyzj 系列就是这样），主题赢——这是主题的表达，别去压 |
 | 光标是纯黑的，和主题没关系 | CM6 默认 `.cm-cursor { border-left: 1.2px solid black }`，深色适配那条是 `&dark .cm-cursor`——只有用过 `EditorView.theme(…, {dark:true})` 才会生成 `.cm-dark` 类。本项目颜色全交给 Typora 主题，`.cm-dark` 永远不存在，所以深色主题下光标一直是黑的（实测 `hasCmDark: false`）。改为 `border-left-color: currentColor` 跟随正文色，且**必须带 `#write` 前缀**（1,1,0）：CM6 的样式是运行时注入到 `<head>` 末尾，同特异性它赢 |
+| ↑/↓ 一按就「冲到选区另一头」 | CM6 的 `cursorByLine` 对**非空选区**直接执行 `rangeEnd(range, forward)`：`↑` 把光标放到选区 from、`↓` 放到 to，**塌陷之后不再移动**。选中一个 20 行的代码块、在底部按一下 `↑`，光标瞬间移到块首，看着就像「直接到顶部」。现在 `editor.ts` 用 `arrowFromCursor()` 提前接管：从 `head`（用户最后一次拖到的位置）起步移动一行。只在「单光标 + 有选区」时接管，其余交回默认实现 |
 
 ## 数据安全怎么做的
 

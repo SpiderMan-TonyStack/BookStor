@@ -1,4 +1,4 @@
-import { EditorState, type Extension } from '@codemirror/state'
+import { EditorState, EditorSelection, type Extension } from '@codemirror/state'
 import {
   EditorView,
   keymap,
@@ -55,6 +55,32 @@ export interface EditorCallbacks {
   onDropImage: (file: File) => void
   /** 选区/光标变了（大纲高亮当前章节用） */
   onSelection?: (pos: number) => void
+}
+
+/**
+ * ↑ / ↓：有选区时，从**光标那一端**上下移一行，而不是塌陷到选区另一头。
+ *
+ * CM6 的 `cursorByLine` 对非空选区执行的是 `rangeEnd(range, forward)`：
+ *   ↑ → 光标直接放到选区的 from（顶部），↓ → 直接放到 to（底部）
+ * 塌陷之后**不再移动**。后果是选中一个 20 行的代码块、在底部按一下 ↑，
+ * 光标一下子瞬移到块首 —— 看着就像「直接冲到顶部」，而不是「往上一行」。
+ *
+ * 这里改成从 head（用户最后一次拖到的位置）起步移动一行：
+ * 不管选区是向上还是向下拖的，按 ↑ 就是往上走一行，光标不会跳到另一头。
+ *
+ * 只在「单光标 + 有选区」时接管，其余返回 false 交回 CM6 默认实现 ——
+ * 多光标同时塌陷的语义容易出岔子，不值得为它冒险。
+ */
+function arrowFromCursor(forward: boolean) {
+  return (view: EditorView): boolean => {
+    const state = view.state
+    if (state.selection.ranges.length > 1) return false
+    const sel = state.selection.main
+    if (sel.empty) return false
+    const target = view.moveVertically(EditorSelection.cursor(sel.head), forward)
+    view.dispatch({ selection: target, scrollIntoView: true })
+    return true
+  }
 }
 
 export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHandle {
@@ -147,6 +173,10 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
           return true
         },
       },
+      // 这两条必须排在 defaultKeymap 前面：CM6 默认的 ↑/↓ 一遇到非空选区就
+      // 直接塌陷到选区另一端、不再移动（见下面 arrowFromCursor 的注释）
+      { key: 'ArrowUp', run: arrowFromCursor(false) },
+      { key: 'ArrowDown', run: arrowFromCursor(true) },
       indentWithTab,
       ...defaultKeymap,
       ...historyKeymap,
