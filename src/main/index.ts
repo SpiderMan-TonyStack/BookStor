@@ -17,6 +17,9 @@ const isDev = !app.isPackaged
 
 let mainWindow: BrowserWindow | null = null
 
+/** 渲染层报告的「有未保存改动」状态，供关窗拦截使用（IPC 推上来，主进程不猜） */
+let rendererDirty = false
+
 function send(cmd: string): void {
   mainWindow?.webContents.send('menu', cmd)
 }
@@ -100,6 +103,33 @@ async function createWindow(): Promise<void> {
   })
 
   mainWindow.once('ready-to-show', () => mainWindow?.show())
+
+  // 关窗保护：渲染层有未落盘的改动时，先问一句再关。
+  // 之前是在渲染层用 beforeunload + void doSave() —— 那是异步的，
+  // 窗口已经销毁，await 后面的写盘根本没机会跑完，等于没保护。
+  mainWindow.on('close', (e) => {
+    if (!rendererDirty) return
+    const choice = dialog.showMessageBoxSync(mainWindow!, {
+      type: 'warning',
+      buttons: ['保存并关闭', '取消', '放弃改动'],
+      defaultId: 0,
+      cancelId: 1,
+      title: '还有未保存的修改',
+      message: '当前笔记还没存盘。',
+      detail: '「保存并关闭」会先写盘再退出；「放弃改动」会丢掉这次的修改。',
+    })
+    if (choice === 1) {
+      e.preventDefault()
+      return
+    }
+    if (choice === 2) {
+      rendererDirty = false
+      return
+    }
+    // 选择保存：拦下这次关闭，让渲染层存完再自己退出
+    e.preventDefault()
+    mainWindow?.webContents.send('menu', 'save-then-quit')
+  })
 
   const saveBounds = async (): Promise<void> => {
     if (!mainWindow || mainWindow.isDestroyed()) return
@@ -262,6 +292,58 @@ ipcMain.handle('app:userData', async () => ({
   fellBack: userDataInfo.fellBack,
   reason: userDataInfo.reason,
 }))
+
+// ------------------------------------------------------------------ 崩溃草稿
+//
+// config.ts 里早就有 crashDraft 字段，但一直没人读写 —— 等于「崩溃恢复」只是
+// 验收表里的一行字。这里补上：
+//   编辑器每次改动 → 防抖写一份全文快照进 config.json
+//   保存成功 / 正常关窗 → 清掉
+//   下次启动若还有快照 → 说明上次没走完正常流程，问用户要不要恢复
+// 快照上限 2MB：再大的文件复制一次的成本（和 config.json 的体积）都不划算，
+// 而且那种文件基本是日志，不是手写笔记。
+
+const DRAFT_MAX = 2 * 1024 * 1024
+
+ipcMain.handle('draft:save', async (_e, filePath: string, text: string) => {
+  if (text.length > DRAFT_MAX) return false
+  await saveConfig({ crashDraft: { path: filePath, text, at: Date.now() } })
+  return true
+})
+
+ipcMain.handle('draft:get', async () => {
+  const cfg = await loadConfig()
+  return cfg.crashDraft
+})
+
+ipcMain.handle('draft:clear', async () => {
+  await saveConfig({ crashDraft: null })
+})
+
+/** 重启后回到上次那篇笔记（lastFile 字段同理，之前一直空着） */
+ipcMain.handle('app:getLastFile', async () => (await loadConfig()).lastFile)
+ipcMain.handle('app:setLastFile', async (_e, filePath: string) => {
+  await saveConfig({ lastFile: filePath })
+  return filePath
+})
+
+/** 渲染层每次 dirty 状态变化都推上来，主进程关窗时据此决定要不要拦 */
+ipcMain.on('app:dirty', (_e, value: boolean) => {
+  rendererDirty = value
+})
+
+/** 侧栏宽度：拖一下记住，下次启动还原 */
+ipcMain.handle('app:getSidebarWidth', async () => (await loadConfig()).sidebarWidth)
+ipcMain.handle('app:setSidebarWidth', async (_e, w: number) => {
+  await saveConfig({ sidebarWidth: Math.max(160, Math.min(480, Math.round(w))) })
+  return w
+})
+
+/** 渲染层存完盘后请求退出（「保存并关闭」走这条路） */
+ipcMain.on('app:quit-now', () => {
+  rendererDirty = false
+  app.quit()
+})
 
 // ------------------------------------------------------------------ 生命周期
 

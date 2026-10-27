@@ -1,6 +1,6 @@
 import type { FileNode, NoteDoc } from '../shared/types.js'
 import { renderTree, setActive } from './tree.js'
-import { createEditor, insertAtCursor, wrapSelection, setHeading, type EditorHandle } from './editor.js'
+import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, type EditorHandle } from './editor.js'
 import { applyTheme, reloadTheme, currentThemeReport } from './theme.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -18,6 +18,12 @@ const elEmpty = $('jd-empty')
 const elStatusPath = $('jd-status-path')
 const elStatusSave = $('jd-status-save')
 const elStatusMeta = $('jd-status-meta')
+const elRecover = $('jd-recover')
+const elRecoverText = $('jd-recover-text')
+const elRecoverYes = $<HTMLButtonElement>('jd-recover-yes')
+const elRecoverNo = $<HTMLButtonElement>('jd-recover-no')
+const elSidebar = $('jd-sidebar')
+const elSidebarResize = $('jd-sidebar-resize')
 
 // ------------------------------------------------------------------ 状态
 
@@ -27,6 +33,16 @@ let dirty = false
 let saving = false
 let saveTimer: number | null = null
 let editor: EditorHandle | null = null
+let draftTimer: number | null = null
+
+/**
+ * dirty 的唯一写入口。
+ * 顺手把状态推给主进程 —— 关窗拦截靠它，不能只留在渲染层。
+ */
+function setDirty(value: boolean): void {
+  dirty = value
+  window.api.setDirty(value)
+}
 
 const setSaveStatus = (text: string, cls = ''): void => {
   elStatusSave.textContent = text
@@ -43,9 +59,10 @@ function ensureEditor(): EditorHandle {
   if (editor) return editor
   editor = createEditor(elEditorHost, {
     onChange: () => {
-      dirty = true
+      setDirty(true)
       setSaveStatus('未保存', 'is-dirty')
       scheduleSave()
+      scheduleDraft()
     },
     onSaveRequest: () => void doSave(),
     onPasteImage: (file) => void handleImage(file),
@@ -57,6 +74,80 @@ function ensureEditor(): EditorHandle {
 function scheduleSave(): void {
   if (saveTimer !== null) window.clearTimeout(saveTimer)
   saveTimer = window.setTimeout(() => void doSave(), 800)
+}
+
+/**
+ * 崩溃草稿：比自动保存更早、更频繁地落一份快照。
+ * 自动保存失败（磁盘满、文件被独占）时，这仍是唯一能救回内容的东西，
+ * 所以它和 doSave 是两个独立的定时器，不能合并。
+ */
+function scheduleDraft(): void {
+  if (!current) return
+  if (draftTimer !== null) window.clearTimeout(draftTimer)
+  draftTimer = window.setTimeout(() => {
+    if (!current || !editor || !dirty) return
+    void window.api.saveDraft(current.path, editor.getDoc())
+  }, 300)
+}
+
+/**
+ * 上次没走完正常流程？有草稿就在顶部显示恢复条。
+ * 不用 window.confirm：原生对话框会阻塞渲染进程、无法样式化、
+ * 而且在自动化环境里会被直接判为取消（实测把草稿静默扔掉了）。
+ */
+async function offerCrashRecovery(): Promise<void> {
+  const draft = await window.api.getDraft()
+  if (!draft) return
+
+  const when = new Date(draft.at).toLocaleString('zh-CN')
+  const name = draft.path.split(/[\\/]/).pop() ?? draft.path
+  elRecoverText.textContent = `上次退出时「${name}」还有 ${draft.text.length} 字没保存（${when}）`
+  elRecover.classList.remove('hidden')
+
+  return new Promise<void>((resolve) => {
+    const cleanup = (): void => {
+      elRecover.classList.add('hidden')
+      elRecoverYes.removeEventListener('click', onYes)
+      elRecoverNo.removeEventListener('click', onNo)
+    }
+
+    const onYes = (): void => {
+      cleanup()
+      void (async () => {
+        try {
+          const disk = await window.api.readNote(draft.path)
+          current = { ...disk, text: draft.text }
+          setDirty(true)
+          elEmpty.classList.add('hidden')
+          const ed = ensureEditor()
+          ed.setDoc(draft.text, dirNameOf(draft.path))
+          setActive(elTree, draft.path)
+          elStatusPath.textContent = draft.path
+          elStatusPath.title = draft.path
+          elStatusSave.textContent = '已恢复草稿（未保存）'
+          elStatusSave.className = 'is-dirty'
+          setMetaStatus(`已恢复 ${when} 的草稿，检查无误后按 Ctrl+S 写盘`)
+        } catch (err) {
+          setMetaStatus(`草稿恢复失败：${(err as Error).message}`)
+          await window.api.clearDraft()
+        }
+        resolve()
+      })()
+    }
+
+    const onNo = (): void => {
+      cleanup()
+      void (async () => {
+        // 丢弃草稿，但磁盘上的文件一个字都不动
+        await window.api.clearDraft()
+        setMetaStatus('已丢弃上次的草稿')
+        resolve()
+      })()
+    }
+
+    elRecoverYes.addEventListener('click', onYes)
+    elRecoverNo.addEventListener('click', onNo)
+  })
 }
 
 async function doSave(): Promise<void> {
@@ -76,10 +167,15 @@ async function doSave(): Promise<void> {
   saving = false
 
   if (res.ok) {
-    dirty = false
+    // 写盘期间用户可能又敲了字：只有内容确实还是刚写下去的那份才算「干净」
+    const stillSame = editor.getDoc() === text
+    setDirty(!stillSame)
+    if (!stillSame) scheduleSave()
     current.mtimeMs = res.mtimeMs
     current.size = res.size
     setSaveStatus('已保存', 'is-saved')
+    // 写盘成功且内容未再变 → 草稿没用了，清掉（否则下次启动会误以为崩溃过）
+    if (stillSame) await window.api.clearDraft()
     window.setTimeout(() => {
       if (!dirty) setSaveStatus('')
     }, 1600)
@@ -104,7 +200,7 @@ async function handleImage(file: File): Promise<void> {
   const ext = (file.name.split('.').pop() ?? 'png').toLowerCase()
   const rel = await window.api.saveImage(current.path, base64, ext)
   insertAtCursor(editor.view, `![](${rel})`)
-  dirty = true
+  setDirty(true)
   scheduleSave()
 }
 
@@ -125,7 +221,14 @@ async function openNote(filePath: string): Promise<void> {
 
   const doc = await window.api.readNote(filePath)
   current = doc
-  dirty = false
+  setDirty(false)
+  // 换文件前先把上一篇的草稿清掉，否则重启会提示恢复错误的内容
+  if (draftTimer !== null) {
+    window.clearTimeout(draftTimer)
+    draftTimer = null
+  }
+  void window.api.clearDraft()
+  void window.api.setLastFile(filePath)
 
   elEmpty.classList.add('hidden')
   const ed = ensureEditor()
@@ -161,6 +264,61 @@ function fmtSize(n: number): string {
 function dirNameOf(filePath: string): string {
   const i = Math.max(filePath.lastIndexOf('\\'), filePath.lastIndexOf('/'))
   return i > 0 ? filePath.slice(0, i) : ''
+}
+
+// ------------------------------------------------------------------ 侧栏宽度
+
+/**
+ * 拖拽改宽。宽度写进 config.sidebarWidth，下次启动恢复。
+ * 用 pointer 事件而不是 mousedown/mousemove：拖到窗口外也能继续跟着走，
+ * 鼠标松开的事件不会丢（mousemove 方案在快速甩出窗口时会卡住）。
+ */
+function setupSidebarResize(): void {
+  let dragging = false
+
+  elSidebarResize.addEventListener('pointerdown', (ev) => {
+    ev.preventDefault()
+    dragging = true
+    elSidebarResize.classList.add('is-dragging')
+    elSidebarResize.setPointerCapture(ev.pointerId)
+  })
+
+  elSidebarResize.addEventListener('pointermove', (ev) => {
+    if (!dragging) return
+    const left = elSidebar.getBoundingClientRect().left
+    const w = Math.round(ev.clientX - left)
+    const clamped = Math.max(160, Math.min(480, w))
+    document.documentElement.style.setProperty('--jd-sidebar-w', `${clamped}px`)
+  })
+
+  const finish = (ev: PointerEvent): void => {
+    if (!dragging) return
+    dragging = false
+    elSidebarResize.classList.remove('is-dragging')
+    try {
+      elSidebarResize.releasePointerCapture(ev.pointerId)
+    } catch {
+      /* 指针已经没了，忽略 */
+    }
+    const w = Math.round(elSidebar.getBoundingClientRect().width)
+    void window.api.saveSidebarWidth(w)
+  }
+
+  elSidebarResize.addEventListener('pointerup', finish)
+  elSidebarResize.addEventListener('pointercancel', finish)
+
+  // 双击恢复默认宽度
+  elSidebarResize.addEventListener('dblclick', () => {
+    document.documentElement.style.setProperty('--jd-sidebar-w', '240px')
+    void window.api.saveSidebarWidth(240)
+  })
+}
+
+async function restoreSidebarWidth(): Promise<void> {
+  const w = await window.api.getSidebarWidth()
+  if (w >= 160 && w <= 480) {
+    document.documentElement.style.setProperty('--jd-sidebar-w', `${w}px`)
+  }
 }
 
 // ------------------------------------------------------------------ 笔记库
@@ -263,8 +421,15 @@ window.api.onMenu((cmd) => {
       void doSave()
       return
     case 'find':
-      // CM6 searchKeymap 绑定在 Mod-f 上，直接派发键盘事件不可靠，这里用命令
-      if (ed) ed.focus()
+      // CM6 的搜索面板必须用命令打开（openSearchPanel），
+      // 光 focus 编辑器什么都不会发生 —— 之前这里就是空操作。
+      if (ed) openSearch(ed.view)
+      return
+    case 'save-then-quit':
+      void (async () => {
+        await doSave()
+        if (!dirty) window.api.quitNow()
+      })()
       return
     case 'h1':
     case 'h2':
@@ -292,15 +457,36 @@ window.api.onMenu((cmd) => {
 // ------------------------------------------------------------------ 启动
 
 void (async () => {
+  setupSidebarResize()
+  await restoreSidebarWidth()
   const saved = await window.api.getCurrentTheme()
   await loadThemes(saved)
   const root = await window.api.getLibrary()
-  if (root) await loadLibrary(root)
-  else setMetaStatus('未打开笔记库')
+  if (root) {
+    await loadLibrary(root)
+    // 上次在看哪篇：先问草稿，没有草稿再回到 lastFile
+    await offerCrashRecovery()
+    if (!current) {
+      const last = await window.api.getLastFile()
+      if (last && last.startsWith(root)) {
+        try {
+          await openNote(last)
+        } catch {
+          // 文件可能被删/改名了，静默忽略，停在文件树
+        }
+      }
+    }
+  } else {
+    setMetaStatus('未打开笔记库')
+  }
   // 重启后恢复上次的主题（默认就用实测定下的 dyzj-dark.css）
   if (elTheme.value) void switchTheme(elTheme.value)
 })()
 
+// 兜底：正常关窗路径走主进程的「保存并关闭」，这里只处理页面级刷新。
+// 注意不能在这里 await 写盘 —— 页面卸载时异步操作跑不完，等于没保护。
 window.addEventListener('beforeunload', () => {
-  if (dirty) void doSave()
+  if (!dirty) return
+  // 只来得及把草稿塞进同步路径；真正的保护在主进程 close 事件里
+  if (current && editor) void window.api.saveDraft(current.path, editor.getDoc())
 })

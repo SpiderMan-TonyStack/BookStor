@@ -8,7 +8,7 @@ import {
   placeholder,
 } from '@codemirror/view'
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
-import { searchKeymap, highlightSelectionMatches } from '@codemirror/search'
+import { searchKeymap, highlightSelectionMatches, openSearchPanel } from '@codemirror/search'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { languages } from '@codemirror/language-data'
 import { syntaxHighlighting, HighlightStyle, indentOnInput } from '@codemirror/language'
@@ -223,6 +223,12 @@ export function wrapSelection(view: EditorView, marker: string): void {
     })
   }
   view.focus()
+}
+
+/** 打开 CM6 的搜索面板（Ctrl+F / 菜单「查找」都走这里） */
+export function openSearch(view: EditorView): void {
+  view.focus()
+  openSearchPanel(view)
 }
 
 /** 把当前行改成 N 级标题（N=0 表示正文），保留缩进之后的内容 */

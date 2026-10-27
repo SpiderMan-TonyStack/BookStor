@@ -56,6 +56,26 @@ body {
   background: var(--jd-sidebar-bg);
   border-right: 1px solid var(--jd-border);
   user-select: none;
+  /* 拖拽条是绝对定位的，锚点在这里 */
+  position: relative;
+}
+
+#jd-sidebar-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+  /* 平时不可见，只在拖拽/悬停时显形，避免和主题的边框打架 */
+  background: transparent;
+  transition: background 120ms;
+}
+
+#jd-sidebar-resize:hover,
+#jd-sidebar-resize.is-dragging {
+  background: rgba(0, 196, 182, 0.55);
 }
 
 #jd-sidebar-head {
@@ -179,6 +199,56 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* 崩溃草稿恢复条：停在正文上方，不遮挡内容、不用模态框 */
+#jd-recover {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  background: #3a2f12;
+  border-bottom: 1px solid #6b5518;
+  color: #f0d68a;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+#jd-recover.hidden {
+  display: none;
+}
+
+#jd-recover-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#jd-recover-actions {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 8px;
+}
+
+#jd-recover button {
+  background: #4a3c18;
+  color: #f0d68a;
+  border: 1px solid #6b5518;
+  border-radius: 4px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#jd-recover button:hover {
+  background: #5a4a1e;
+}
+
+#jd-recover-yes {
+  font-weight: 600;
 }
 
 #write {

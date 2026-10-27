@@ -69,6 +69,13 @@ export interface ThemePayload {
   vars: Record<string, string>
 }
 
+/** 崩溃草稿：编辑器未落盘时的全文快照（M1「崩溃恢复」的实现载体） */
+export interface CrashDraft {
+  path: string
+  text: string
+  at: number
+}
+
 declare global {
   interface Window {
     api: {
@@ -86,6 +93,18 @@ declare global {
       getCurrentTheme(): Promise<string>
       setCurrentTheme(name: string): Promise<string>
       translateTheme(name: string): Promise<ThemePayload>
+      /** 崩溃草稿；超过 2MB 的文件不存（返回 false） */
+      saveDraft(path: string, text: string): Promise<boolean>
+      getDraft(): Promise<CrashDraft | null>
+      clearDraft(): Promise<void>
+      getLastFile(): Promise<string>
+      setLastFile(path: string): Promise<string>
+      getSidebarWidth(): Promise<number>
+      saveSidebarWidth(w: number): Promise<number>
+      /** 把「有未保存改动」告诉主进程，关窗时用它决定拦不拦 */
+      setDirty(value: boolean): void
+      /** 存完盘后主动退出（主进程的「保存并关闭」走这条） */
+      quitNow(): void
       onMenu(cb: (cmd: string) => void): void
       onThemeChanged(cb: () => void): void
     }

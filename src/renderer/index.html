@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -32,9 +32,20 @@
           <option value="">（内置）</option>
         </select>
       </div>
+      <!-- 拖拽改宽：贴侧栏右缘，宽度记进 config.sidebarWidth -->
+      <div id="jd-sidebar-resize" title="拖动调整宽度"></div>
     </aside>
 
     <main class="jd-content">
+      <!-- 崩溃草稿恢复条：不用 window.confirm（会阻塞渲染、无法样式化）。
+           默认隐藏，main.ts 检测到草稿才显示。 -->
+      <div id="jd-recover" class="hidden">
+        <span id="jd-recover-text"></span>
+        <span id="jd-recover-actions">
+          <button id="jd-recover-yes">恢复</button>
+          <button id="jd-recover-no">丢弃</button>
+        </span>
+      </div>
       <div id="write">
         <div id="jd-editor"></div>
         <div id="jd-empty">

@@ -7,10 +7,10 @@
 
 | 里程碑 | 内容 | 状态 |
 | --- | --- | --- |
-| M1 能写 | 文件树、CM6 编辑、自动保存、**逐字节无损往返**、图片落盘 | ✅ |
-| M2 像 Typora | 块级语法显隐、图片渲染与裂图占位、快捷键 | ✅ |
+| M1 能写 | 文件树、CM6 编辑、自动保存、**逐字节无损往返**、图片落盘、崩溃恢复、关窗拦截 | ✅ |
+| M2 像 Typora | 块级语法显隐、图片渲染与裂图占位、表格真渲染、快捷键 | ✅ |
 | M3 主题（核心） | `@import` 递归内联、`url()` 重写、选择器映射、热重载 | ✅ |
-| M4 桌面感 | 原生菜单、窗口记忆、图标、单实例、打包 exe | ✅ |
+| M4 桌面感 | 原生菜单、窗口记忆、上次文件恢复、侧栏可拖宽、图标、单实例、打包 exe | ✅ |
 | M5 加料 | 表格面板、大纲、折叠、专注模式、Mermaid、PDF | ⬜ |
 
 策划案（含本机实测数据、技术决策与被推翻的假设）见 [docs/01-策划案.md](docs/01-策划案.md)。
@@ -51,6 +51,7 @@ src/
     editor.ts      CM6 实例与扩展
     lineclasses.ts 行级语义 class（.jd-h1…/.jd-code-line…），两轮扫描出「首行/末行」用于拼框
     markers.ts     语法标记显隐 + 图片 widget（font-size:0 隐藏，不改文本）
+    table.ts       表格真渲染（StateField 块装饰；光标进表退回源码）
     theme.ts       主题注入层（五层 CSS 顺序是契约）
     tree.ts        文件树
   shared/types.ts  IPC 类型
@@ -90,6 +91,17 @@ theme-base.css     Typora 排版骨架（我们自己补的，主题只写差异
 | `?t=1670129411561` | 字体 URL 的缓存串，`file://` 下 404。重写时丢弃查询串 |
 | `config.json` 带 BOM | `JSON.parse` 抛错 → 静默 fallback → 文件树空白。读时剥 `\uFEFF` |
 | rcedit 空值 | electron-builder 25.1.8 无条件写 `OriginalFilename ""`，rcedit 不收。用 `scripts/after-pack.cjs` 自己写 |
+| CM6 block 装饰只能用 StateField | `ViewPlugin` 提供 block replace 会抛 `RangeError: Block decorations may not be specified via plugins`，后面一堆 `Cannot destructure property 'tile'` 全是它的连锁反应 |
+| 映射表不同标签别共用类名 | `th`/`td` 都映射成 `.jd-table-cell` 会让主题的 `table tr th{background}` 命中所有单元格 → 整表变绿。必须拆成 `jd-table-head-cell` / `jd-table-cell` |
+| 关窗保护不能在渲染层做 | `beforeunload` 里 `void doSave()` 是异步的，窗口已销毁，写盘跑不完。必须主进程 `close` 事件拦 |
+
+## 数据安全怎么做的
+
+- **写盘**：tmp 文件 + `fsync` + rename（同目录，原子）；Windows 上被网盘/杀软占用时重试 6 次。
+- **崩溃恢复**：打字后 **300ms** 写一份草稿到 `config.crashDraft`（比 800ms 的自动保存更早），正常存盘成功后清掉。下次启动若发现草稿，顶部横幅问「恢复 / 丢弃」，**磁盘一个字节都不动**，直到你按 Ctrl+S。
+- **关窗拦截**：渲染层把 `dirty` 推给主进程，关窗时若有未保存改动弹三选一（保存并关闭 / 取消 / 放弃改动）。
+- **单实例锁**：多开会让同一文件被两个编辑器互相覆盖。
+- **上次状态**：`lastFile` 记上次打开的文件，重启自动打开；侧栏宽度也能拖拽记住（双击把手恢复 240px）。
 
 ## 许可
 
