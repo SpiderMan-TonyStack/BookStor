@@ -19,6 +19,24 @@ body {
   background-color: var(--bg-color, #fff);
 }
 
+/*
+ * 内置样式的「暗」档（策划案 §3.1-6：亮/暗两套内置主题兜底）。
+ *
+ * 挂在 `html[data-builtin='dark']` 上，由 `theme.ts` 的 `applyTheme('builtin-dark')`
+ * 设置。只改正文区用到的几个变量：底色、正文色、代码块底色与边框。
+ *
+ * 外壳（侧栏 / 状态栏 / 标题栏）走的是另一套固定的 `--jd-*` 深色变量，这里不碰 ——
+ * 所以「内置 · 深色」和外壳是和谐的，而「内置」浅色档是白纸配深边框，
+ * 那是有意保留的：需要和周围环境一致的深色读者选这一档。
+ */
+html[data-builtin='dark'] {
+  --bg-color: #1e1f22;
+  --body-color: #ced2d6;
+  --codebg-color: rgba(255, 255, 255, 0.12);
+  --jd-code-bg: rgba(255, 255, 255, 0.06);
+  --jd-code-border: rgba(255, 255, 255, 0.12);
+}
+
 .jd-content {
   color: var(--body-color, #333);
   /* 主题把 html 的 font-size 设成 17px，正文用 rem 才能跟着缩放 */

@@ -24,6 +24,18 @@ import guardCss from './shell-guard.css?inline'
 
 let payload: ThemePayload | null = null
 
+/**
+ * 「内置 · 深色」这个档位的名字。
+ *
+ * 用的是一个**不是文件**的特殊值：它不会被 `getThemes()` 列出来，也不走翻译管线，
+ * 只是在 `applyTheme` 里被识别后给 `<html>` 挂 `data-builtin="dark"`，
+ * 由 `theme-base.css` 里那组变量接管颜色。
+ *
+ * 名字沿用 `config.ts` 的 `DEFAULTS.themeName` —— 那个默认值一直写着 `'builtin-dark'`，
+ * 但之前没有对应实现（会被当成一个不存在的主题文件，然后悄悄回落到内置浅色）。
+ */
+export const BUILTIN_DARK = 'builtin-dark'
+
 function ensureStyle(id: string, css = ''): HTMLStyleElement {
   let el = document.getElementById(id) as HTMLStyleElement | null
   if (!el) {
@@ -78,11 +90,19 @@ export async function applyTheme(name: string): Promise<ThemePayload | null> {
   mountLayers()
   const el = ensureStyle('jd-typora-theme')
 
-  if (!name) {
+  // 两个「内置」档都不翻译任何主题文件，只切 <html> 上的标记：
+  //   ''              → 内置浅色（不挂标记，用 theme-base 的默认变量）
+  //   BUILTIN_DARK    → 内置深色（挂 data-builtin="dark"）
+  if (!name || name === BUILTIN_DARK) {
     el.textContent = ''
     payload = null
     delete document.documentElement.dataset.theme
     delete document.documentElement.dataset.themeFonts
+    if (name === BUILTIN_DARK) {
+      document.documentElement.dataset['builtin'] = 'dark'
+    } else {
+      delete document.documentElement.dataset['builtin']
+    }
     syncTitleBarTheme()
     return null
   }
@@ -91,6 +111,7 @@ export async function applyTheme(name: string): Promise<ThemePayload | null> {
   el.textContent = result.css
   payload = result
   document.documentElement.dataset.theme = name
+  delete document.documentElement.dataset['builtin']
   // 主题自带 @font-face 时，字体在 file:// 下要等加载完才生效。
   // 把数量挂到 html 上，排查「字体没生效」时能立刻区分「没声明」和「路径错」。
   document.documentElement.dataset.themeFonts = String(result.report.fontFaces)

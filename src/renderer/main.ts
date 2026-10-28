@@ -1,7 +1,13 @@
 import type { FileNode, NoteDoc } from '../shared/types.js'
 import { renderTree, setActive } from './tree.js'
 import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, insertCodeBlock, type EditorHandle } from './editor.js'
-import { applyTheme, reloadTheme, currentThemeReport, currentThemeCss } from './theme.js'
+import {
+  applyTheme,
+  reloadTheme,
+  currentThemeReport,
+  currentThemeCss,
+  BUILTIN_DARK,
+} from './theme.js'
 import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
 import { openSettings } from './settings.js'
 import { installKeybindings } from './keybindings.js'
@@ -487,6 +493,18 @@ function dirNameOf(filePath: string): string {
   return i > 0 ? filePath.slice(0, i) : ''
 }
 
+/**
+ * 归一化路径后再比较。
+ *
+ * Windows 下 `D:/a` 和 `D:\a` 是同一个位置，但不是同一个字符串 ——
+ * 直接 `startsWith` 会静默失败，现象是「重启后回到文件树、不打开上次那篇」，
+ * 而且**不报任何错**。正反斜杠混用是常态：用户手改过 config、别的工具写过面板、
+ * 或者任何一处用了 `path.posix` 都会留下正斜杠。
+ */
+function normPath(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase()
+}
+
 // ------------------------------------------------------------------ 侧栏宽度
 
 /**
@@ -573,20 +591,27 @@ async function loadThemes(selected?: string): Promise<void> {
   builtin.value = ''
   builtin.textContent = '（内置）'
   elTheme.append(builtin)
+  // 内置的深色档：策划案 §3.1-6 的「亮/暗两套兜底」。它不是主题文件，
+  // 值也取自 config 里一直留着却没实现的那个 'builtin-dark'
+  const builtinDark = document.createElement('option')
+  builtinDark.value = BUILTIN_DARK
+  builtinDark.textContent = '（内置 · 深色）'
+  elTheme.append(builtinDark)
   for (const t of themes) {
     const o = document.createElement('option')
     o.value = t
     o.textContent = t.replace(/\.css$/i, '')
     elTheme.append(o)
   }
-  if (selected && themes.includes(selected)) elTheme.value = selected
+  if (selected === BUILTIN_DARK) elTheme.value = BUILTIN_DARK
+  else if (selected && themes.includes(selected)) elTheme.value = selected
 }
 
 /** 主题切换：翻译 → 注入 → 状态栏报账 */
 async function switchTheme(name: string): Promise<void> {
-  if (!name) {
-    await applyTheme('')
-    setMetaStatus('已切回内置样式（无主题）')
+  if (!name || name === BUILTIN_DARK) {
+    await applyTheme(name)
+    setMetaStatus(name === BUILTIN_DARK ? '内置样式 · 深色' : '内置样式 · 浅色')
     return
   }
   setMetaStatus(`正在翻译主题 ${name} …`)
@@ -619,7 +644,8 @@ elTheme.addEventListener('change', () => {
 // 主题文件在 Typora 里被改了一行 → 这里自动重翻译（400ms 防抖在主进程做）
 window.api.onThemeChanged(() => {
   const name = elTheme.value
-  if (!name) return
+  // 两个内置档没有主题文件，没有「被改」这回事
+  if (!name || name === BUILTIN_DARK) return
   void (async () => {
     try {
       await reloadTheme(name)
@@ -812,7 +838,8 @@ void (async () => {
     await offerCrashRecovery()
     if (!current) {
       const last = await window.api.getLastFile()
-      if (last && last.startsWith(root)) {
+      // 用 normPath 比较分隔符与大小写，别直接 startsWith（见 normPath 的注释）
+      if (last && normPath(last).startsWith(normPath(root))) {
         try {
           await openNote(last)
         } catch {
