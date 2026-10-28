@@ -17,6 +17,8 @@ import { lineClassPlugin } from './lineclasses.js'
 import { markdownMarksPlugin, docBaseField, setDocBase } from './markers.js'
 import { tableWidgetField } from './table.js'
 import { foldExtensions } from './fold.js'
+import { sourceModeField } from './viewmode.js'
+import { mermaidExtensions } from './mermaid.js'
 
 /**
  * 语法高亮 —— 刻意克制。
@@ -132,6 +134,12 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
     //     内容必须用 block replace 从布局里换掉，不能用 CSS display:none ——
     //     隐藏的行不在 CM6 的高度模型里，会让滚动/点击/光标全部偏移。
     ...foldExtensions,
+
+    // --- 源码模式（Ctrl+/）：markers / table / fold 三处都读这个 field
+    sourceModeField,
+
+    // --- Mermaid 代码块渲染（mermaid 库按需动态加载，见 mermaid.ts）
+    ...mermaidExtensions,
 
     // --- 编辑行为
     EditorView.updateListener.of((u) => {

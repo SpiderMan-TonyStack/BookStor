@@ -339,6 +339,8 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* 表格面板用 absolute 贴在这个盒子的底部，所以它得是定位上下文 */
+  position: relative;
 }
 
 /* 崩溃草稿恢复条：停在正文上方，不遮挡内容、不用模态框 */
@@ -867,4 +869,102 @@ body {
 
 #write.jd-focus .cm-line.jd-active {
   opacity: 1;
+}
+
+/* ---------------------------------------------------------------- 表格面板（M5） */
+
+/* 浮在正文区底部中央。position 相对 .jd-content（它有 position:relative），
+   所以不会跟着 #write 的滚动跑掉。 */
+#jd-table-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 40px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  background: var(--jd-panel-bg, #2b2b2b);
+  border: 1px solid var(--jd-border, #3c3f41);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: 12px;
+  color: var(--jd-fg, #c3cad3);
+  z-index: 20;
+  user-select: none;
+}
+
+#jd-table-panel.hidden {
+  display: none;
+}
+
+#jd-tp-pos {
+  padding: 0 4px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 文字居中必须用 flex：Chromium 的 button 匿名盒不认 text-align，
+   写 text-align:center 之后 getComputedStyle 仍是 left（项目里踩过）。 */
+#jd-table-panel button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 40px;
+  height: 24px;
+  padding: 0 6px;
+  background: transparent;
+  color: inherit;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+#jd-table-panel button:hover:not(:disabled) {
+  background: var(--jd-accent-soft, rgba(255, 255, 255, 0.08));
+  border-color: var(--jd-border, #3c3f41);
+}
+
+#jd-table-panel button:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.jd-tp-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 3px;
+  background: var(--jd-border, #3c3f41);
+}
+
+/* ---------------------------------------------------------------- Mermaid */
+
+/* 图整体居中；横向不够时自己出滚动条，不要把正文撑宽。
+   高度也限一下：库里有 1400×4300 的流程图，任它撑开会把整篇正文推成一条线。 */
+#write .jd-mermaid {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  overflow: auto;
+  max-height: 80vh;
+  cursor: pointer;
+}
+
+#write .jd-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* 渲染失败时不要静默：给一条可见的错误，源码还在文档里，改完就会重新渲染 */
+#write .jd-mermaid-error {
+  padding: 8px 12px;
+  border-left: 3px solid #d9534f;
+  background: rgba(217, 83, 79, 0.12);
+  border-radius: 4px;
+  font-size: 13px;
+  color: #d9534f;
+  white-space: pre-wrap;
 }

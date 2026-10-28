@@ -1,11 +1,14 @@
 import type { FileNode, NoteDoc } from '../shared/types.js'
 import { renderTree, setActive } from './tree.js'
 import { createEditor, insertAtCursor, wrapSelection, setHeading, openSearch, insertCodeBlock, type EditorHandle } from './editor.js'
-import { applyTheme, reloadTheme, currentThemeReport } from './theme.js'
+import { applyTheme, reloadTheme, currentThemeReport, currentThemeCss } from './theme.js'
 import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
 import { openSettings } from './settings.js'
 import { installKeybindings } from './keybindings.js'
 import { countWords } from './text-stats.js'
+import { setSourceMode } from './viewmode.js'
+import { installTablePanel } from './table-panel.js'
+import { markdownToHtml } from './markdown-html.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -47,9 +50,16 @@ let draftTimer: number | null = null
 let outlineItems: OutlineItem[] = []
 let outlineTimer: number | null = null
 let statsTimer: number | null = null
+let tablePanel: { refresh: () => void } | null = null
 /** 视图模式（只在本次会话有效，不写 config） */
 let focusMode = false
 let typewriterMode = false
+/**
+ * 源码模式。这里存一份是为了**换笔记后能恢复** ——
+ * `setDoc` 走的是 `EditorState.create`，field 会重建成默认值 false，
+ * 不补一次的话，翻下一篇就悄悄退回渲染模式了。
+ */
+let sourceMode = false
 
 /**
  * dirty 的唯一写入口。
@@ -137,6 +147,24 @@ function scheduleTypewriter(): void {
   window.setTimeout(typewriterScroll, 0)
 }
 
+// ------------------------------------------------------------------ 源码模式
+
+/**
+ * 渲染模式 ↔ 源码模式。
+ *
+ * 只丢一个布尔进编辑器 state，markers / table / fold 三处各自决定要不要出装饰：
+ * 源码模式下标记全露、图片回 `![](path)`、表格回 `| a | b |`、折叠也停掉。
+ * 行级 class（`.jd-h1` / `.jd-code-block`）保留 —— Typora 的源码模式同样保留排版。
+ */
+function toggleSourceMode(): void {
+  sourceMode = !sourceMode
+  if (editor) {
+    editor.view.dispatch({ effects: setSourceMode.of(sourceMode) })
+    editor.view.focus()
+  }
+  setMetaStatus(sourceMode ? '源码模式：markdown 标记全部显示' : '已回到渲染模式')
+}
+
 // ------------------------------------------------------------------ 编辑器
 
 function ensureEditor(): EditorHandle {
@@ -150,6 +178,7 @@ function ensureEditor(): EditorHandle {
       scheduleOutline()
       scheduleWordCount()
       scheduleTypewriter()
+      tablePanel?.refresh()
     },
     onSaveRequest: () => void doSave(),
     onPasteImage: (file) => void handleImage(file),
@@ -157,6 +186,7 @@ function ensureEditor(): EditorHandle {
     onSelection: (pos) => {
       highlightOutline(elOutline, outlineItems, pos)
       scheduleTypewriter()
+      tablePanel?.refresh()
     },
   })
   return editor
@@ -406,6 +436,8 @@ async function openNote(filePath: string): Promise<void> {
   // 第二个参数是笔记所在目录，图片的相对路径要靠它解析成 file:// 地址
   ed.setDoc(doc.text, dirNameOf(filePath))
   ed.focus()
+  // setDoc 重建了 state，源码模式要跟着补回来（否则翻下一篇就悄悄退回渲染模式）
+  if (sourceMode) ed.view.dispatch({ effects: setSourceMode.of(true) })
 
   // 换笔记要回到顶部。滚动容器是外层的 #write，不是 CM6 的 .cm-scroller
   // （后者是 overflow:visible，见 outline.ts 的注释），所以不能指望 CM6 自己重置。
@@ -439,6 +471,7 @@ async function openNote(filePath: string): Promise<void> {
   // 新笔记的大纲：标题全变了，必须整棵重建
   rebuildOutline()
   renderWordCount()
+  tablePanel?.refresh()
 }
 
 function fmtSize(n: number): string {
@@ -596,6 +629,83 @@ window.api.onThemeChanged(() => {
   })()
 })
 
+// ------------------------------------------------------------------ PDF 导出
+
+/** Windows 绝对路径 → file:// URL（盘符那一段不能编码，否则 `E:` 会变成 `E%3A`） */
+function toFileUrl(absPath: string): string {
+  const parts = absPath.replace(/\\/g, '/').split('/')
+  return 'file:///' + parts.map((s, i) => (i === 0 ? s : encodeURIComponent(s))).join('/')
+}
+
+/** 把 `<img src="相对路径">` 换成绝对 file://：打印页在临时目录里，相对路径找不到图 */
+function absolutizeImages(html: string, baseDir: string): string {
+  const dir = baseDir.replace(/\\/g, '/').replace(/\/+$/, '')
+  return html.replace(
+    /(<img\b[^>]*\bsrc=")([^"]*)(")/g,
+    (whole, pre: string, src: string, post: string) => {
+      if (!src || /^(https?:|data:|file:)/i.test(src)) return whole
+      let decoded = src
+      try {
+        decoded = decodeURIComponent(src)
+      } catch {
+        /* 路径里有裸 % 之类，按原样用 */
+      }
+      const abs =
+        /^[a-zA-Z]:/.test(decoded) || decoded.startsWith('/')
+          ? decoded
+          : `${dir}/${decoded.replace(/^\.\//, '')}`
+      return pre + toFileUrl(abs) + post
+    }
+  )
+}
+
+function escapeForHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * 导出 PDF。
+ *
+ * **不走 pandoc**：本机根本没装（策划案里"本机已装 pandoc"那句话已经过期），
+ * 而让用户为了导出去装一个外部二进制不合适。
+ * 改成 `markdownToHtml()` 用**编辑器同一个 Lezer parser** 生成 HTML，
+ * 套上当前主题的翻译结果，交给隐藏窗口 `printToPDF` —— 纸面和屏幕是同一套样式。
+ */
+async function exportPdf(): Promise<void> {
+  if (!current || !editor) return
+  setMetaStatus('正在生成 PDF…')
+  try {
+    const body = absolutizeImages(markdownToHtml(editor.getDoc()), dirNameOf(current.path))
+    const title = escapeForHtml(current.path.split(/[\\/]/).pop() ?? '导出')
+    const css = currentThemeCss()
+    const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
+<title>${title}</title>
+<style>${css}</style>
+<style>
+  html { background: #fff; }
+  body { margin: 0; }
+  /* 打印时不要屏幕那套「限宽 90% + 居中」，纸面宽度交给 @page */
+  #write { max-width: none !important; width: auto !important; margin: 0 !important; padding: 0 !important; }
+  .jd-h1, .jd-h2, .jd-h3, .jd-h4, .jd-h5, .jd-h6 { break-after: avoid; }
+  pre, table, blockquote, .jd-mermaid, img { break-inside: avoid; }
+  @page { margin: 16mm 14mm; }
+</style></head>
+<body class="jd-content"><div id="write">${body}</div></body></html>`
+
+    const res = await window.api.exportPdf(html, current.path.replace(/\.md$/i, '') + '.pdf')
+    if (res.canceled) {
+      setMetaStatus('已取消导出')
+      return
+    }
+    setMetaStatus(res.ok ? 'PDF 已导出' : `导出失败：${res.error ?? '未知错误'}`)
+    if (!res.ok) window.alert(`导出 PDF 失败：\n${res.error ?? '未知错误'}`)
+  } catch (err) {
+    const msg = (err as Error).message
+    setMetaStatus(`导出失败：${msg}`)
+    window.alert(`导出 PDF 失败：\n${msg}`)
+  }
+}
+
 // ------------------------------------------------------------------ 菜单命令
 
 /**
@@ -662,6 +772,12 @@ export function runCommand(cmd: string): void {
     case 'typewriter-mode':
       setViewModes({ typewriter: !typewriterMode })
       return
+    case 'source-mode':
+      toggleSourceMode()
+      return
+    case 'export-pdf':
+      void exportPdf()
+      return
     case 'settings':
       void openSettings()
       return
@@ -677,6 +793,11 @@ installKeybindings(runCommand)
 
 void (async () => {
   setupSidebarResize()
+  tablePanel = installTablePanel({
+    el: $('jd-table-panel'),
+    getView: () => editor?.view ?? null,
+    onStatus: setMetaStatus,
+  })
   await restoreSidebarWidth()
   const saved = await window.api.getCurrentTheme()
   await loadThemes(saved)

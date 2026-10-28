@@ -20,6 +20,7 @@ export interface CommandDef {
 export const COMMANDS: CommandDef[] = [
   { cmd: 'open-library', label: '打开笔记库…', group: '文件', defaultKey: 'CmdOrCtrl+O' },
   { cmd: 'save', label: '保存', group: '文件', defaultKey: 'CmdOrCtrl+S' },
+  { cmd: 'export-pdf', label: '导出 PDF…', group: '文件', defaultKey: 'CmdOrCtrl+Alt+P' },
   { cmd: 'find', label: '查找', group: '编辑', defaultKey: 'CmdOrCtrl+F' },
   { cmd: 'h1', label: '标题 1', group: '格式', defaultKey: 'CmdOrCtrl+1' },
   { cmd: 'h2', label: '标题 2', group: '格式', defaultKey: 'CmdOrCtrl+2' },
@@ -37,6 +38,8 @@ export const COMMANDS: CommandDef[] = [
   // 视图模式：只改"怎么看"，不动文档。默认键避开 CM6 自带的绑定（Ctrl+Shift+F 会撞搜索）。
   { cmd: 'focus-mode', label: '专注模式', group: '视图', defaultKey: 'CmdOrCtrl+Alt+F' },
   { cmd: 'typewriter-mode', label: '打字机模式', group: '视图', defaultKey: 'CmdOrCtrl+Alt+T' },
+  // Typora 的源码模式习惯键，从那边迁过来不用重新记
+  { cmd: 'source-mode', label: '源码模式', group: '视图', defaultKey: 'CmdOrCtrl+/' },
 ]
 
 /** 用户自定义的覆盖表：cmd → accelerator。空表表示全用默认 */

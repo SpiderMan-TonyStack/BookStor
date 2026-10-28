@@ -15,7 +15,8 @@
 | M5 大纲 | 侧栏「文件 / 大纲」标签页、标题树、点击跳转（4px 内对齐）、当前章节跟随滚动、**代码块里的 `#` 不算标题** | ✅ |
 | M5 快捷键设置 | 14 个命令可自定义、录制即生效、冲突检测、单/全部复位；渲染层 capture 接管，**不被 CM6 抢** | ✅ |
 | M5 阅读体验 | 标题 / 代码块折叠（gutter 三角，收起后内容从布局里消失）、专注模式（非当前段落淡出）、打字机模式（光标行居中）、状态栏字数 | ✅ |
-| M5 其余 | 表格面板、Mermaid、PDF | ⬜ |
+| M5 表格与图 | 光标进表浮出工具条（增删行列 / 三向对齐）、Mermaid 代码块渲染成图 | ✅ |
+| M5 导出与源码 | PDF 导出、源码模式（`Ctrl+/`） | ✅ |
 
 策划案（含本机实测数据、技术决策与被推翻的假设）见 [docs/01-策划案.md](docs/01-策划案.md)。
 
@@ -62,7 +63,12 @@ src/
     heading.ts     标题识别（行首 `## x` + 列表项里的 `- ## x`），三处共用同一份判断
     markers.ts     语法标记显隐 + 图片 widget（font-size:0 隐藏，不改文本）
     table.ts       表格真渲染（StateField 块装饰；光标进表退回源码）
-    table-parse.ts 表格行解析（splitRow / parseAlign，纯函数、无 CM6 依赖，可单独测）
+    table-parse.ts 表格行解析（splitRow / parseAlign / columnAt / joinRow，纯函数、可单独测）
+    table-panel.ts 表格面板（光标进表浮出工具条：增删行列 / 对齐）
+    mermaid.ts     ```mermaid 渲染成图（mermaid 库按需动态加载、结果按内容缓存）
+    markdown-html.ts  Markdown → HTML（PDF 导出用，走编辑器同一个 Lezer parser）
+    viewmode.ts    源码模式开关（markers / table / fold / mermaid 四处共用）
+    text-stats.ts  字数统计（中文按字、英文按词）
     outline.ts     大纲（标题树 / 点击跳转 / 当前章节高亮；复用 fence.ts 跳过代码块）
     theme.ts       主题注入层（五层 CSS 顺序是契约）
     settings.ts    快捷键设置面板（录制 / 冲突检测 / 恢复默认）
@@ -213,6 +219,48 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 
 解法是菜单项加 `registerAccelerator: false` —— accelerator 只用于**显示**（当说明书），按键一律交给
 渲染层 `keybindings.ts`。现在只剩一条触发路径，行为可预测。
+
+## 表格面板 / Mermaid / 源码模式 / PDF
+
+### 表格面板（`table-panel.ts`）
+
+光标进表格时浮出工具条：±行、±列、左中右对齐。
+
+- **浮在窗口底部**而不是贴着表格：贴表格要跟着滚动、折叠、换主题重算坐标，还得处理贴边翻转；
+  而光标在表内时表格本来就退回源码行，视线就在那一块，底部固定条够得着也不会跑偏。
+- 按钮监听 `mousedown` 并 `preventDefault`：焦点一旦离开编辑器，selection 就变了，
+  面板会立刻自己藏起来 —— 用户看到的是"点了一下面板就没了"。
+- 表头行和分隔行删不得（删了表格就不成立），按钮置灰。
+- 列索引靠 `columnAt()` 数竖线，不在 `splitRow` 结果上做偏移映射（转义 `\|`、首尾缺竖线都会把偏移算错）。
+
+### Mermaid（`mermaid.ts`）
+
+- **按需动态 import**：库压缩后三兆多，首屏不该背它；文档里真出现 ```mermaid 才加载。
+- **结果按代码内容缓存**：滚动、换光标都会反复要求同一张图，不缓存等于每次重跑一遍布局。
+- **异步结果靠 effect 回流**：block 装饰必须由 StateField 提供，而它的 update 是同步的、不能 await；
+  渲染完成后 dispatch 一个空 effect，把"可以重算了"这件事推回 state。
+- 光标进块退回源码；点图也能进块 —— `ignoreEvent()` 必须返回 `false`，否则点击被 widget 整个吞掉。
+
+### 源码模式（`viewmode.ts`）
+
+一个布尔 field，四个模块读它：markers 不出标记装饰、table 不画表格、fold 不折叠、mermaid 不替换。
+行级 class（`.jd-h1` / `.jd-code-block`）保留 —— Typora 的源码模式也保留排版，只是把标记露出来。
+
+换笔记时 `setDoc` 走 `EditorState.create`，field 会重置成 `false`，所以 `sourceMode` 单独存了一份变量补回去，
+否则翻下一篇就悄悄退回渲染模式。
+
+### PDF 导出
+
+**没有走 pandoc**：本机根本没装（策划案里"本机已装 pandoc"那句话已经过期），
+而让用户为了导出再装一个外部二进制不合适。
+
+改成 `markdown-html.ts` 用**编辑器同一个 Lezer parser** 生成 HTML（markdown 解析仍然只有一份实现），
+套上当前主题的翻译结果，交给隐藏窗口 `printToPDF` —— 纸面和屏幕是同一套 CSS。
+
+**为什么不直接打印主窗口**：CM6 是虚拟化的，屏幕上只有视口那几十行有 DOM，直接打印会得到大片空白。
+隐藏窗口里放的是静态 HTML，全文都在。
+
+> 已知限制：PDF 里的 ```mermaid 会以**代码块**形式导出（不渲染成图）—— 图只存在于渲染层的缓存里。
 
 ## 已知的坑（都踩过，记下来省时间）
 

@@ -95,6 +95,11 @@ declare global {
       getCurrentTheme(): Promise<string>
       setCurrentTheme(name: string): Promise<string>
       translateTheme(name: string): Promise<ThemePayload>
+      /** 导出 PDF：渲染层拼好整页 HTML，主进程弹保存框并用隐藏窗口打印 */
+      exportPdf(
+        html: string,
+        suggested: string
+      ): Promise<{ ok: boolean; canceled?: boolean; path?: string; error?: string }>
       /** 崩溃草稿；超过 2MB 的文件不存（返回 false） */
       saveDraft(path: string, text: string): Promise<boolean>
       getDraft(): Promise<CrashDraft | null>

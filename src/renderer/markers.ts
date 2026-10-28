@@ -2,6 +2,7 @@ import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { createFenceState, stepFence } from './fence.js'
 import { parseHeading } from './heading.js'
+import { isSourceMode, setSourceMode } from './viewmode.js'
 
 /**
  * M2：语法标记显隐。
@@ -231,6 +232,9 @@ function buildDecorations(view: EditorView): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>()
   const state = view.state
 
+  // 源码模式：一个装饰都不给 —— 标记全部露出来，图片也回到 `![](path)` 原文
+  if (isSourceMode(state)) return Decoration.none
+
   // 光标/选区所在行 → 显示原文
   const activeLines = new Set<number>()
   for (const r of state.selection.ranges) {
@@ -396,7 +400,10 @@ export const markdownMarksPlugin = ViewPlugin.fromClass(
       this.decorations = buildDecorations(view)
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged) {
+      // 切源码模式不会改动文档、也可能不动光标，得单独听这个 effect，
+      // 否则按了 Ctrl+/ 要等下一次输入才刷新。
+      const modeChanged = u.transactions.some((tr) => tr.effects.some((e) => e.is(setSourceMode)))
+      if (u.docChanged || u.viewportChanged || u.selectionSet || u.focusChanged || modeChanged) {
         this.decorations = buildDecorations(u.view)
       }
     }

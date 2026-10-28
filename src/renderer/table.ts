@@ -1,6 +1,10 @@
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { type EditorState, RangeSet, StateField } from '@codemirror/state'
-import { splitRow, parseAlign, type Cell } from './table-parse.js'
+import { splitRow, parseAlign, columnAt, joinRow, type Cell } from './table-parse.js'
+import { isSourceMode, setSourceMode } from './viewmode.js'
+
+// joinRow 的真身在 table-parse.ts（纯函数、可单测），这里只是转出去给面板用
+export { joinRow }
 
 /**
  * 表格渲染：把「一串 `|a|b|` 行」变成真正的 `<table>`。
@@ -133,7 +137,7 @@ class TableWidget extends WidgetType {
  * （只有两行的"表头+分隔行"是空表格，Markdown 也渲染得出来，但没内容可看，
  *  退回源码更诚实）。
  */
-interface TableBlock {
+export interface TableBlock {
   firstLine: number
   lastLine: number
   from: number
@@ -184,6 +188,9 @@ function findTables(state: EditorState): TableBlock[] {
 }
 
 function build(state: EditorState): DecorationSet {
+  // 源码模式下不画表格：用户要看的是 `| a | b |` 原文
+  if (isSourceMode(state)) return RangeSet.empty
+
   const sel = state.selection
   const items: { from: number; to: number; deco: Decoration }[] = []
 
@@ -206,6 +213,46 @@ function build(state: EditorState): DecorationSet {
   return RangeSet.of(items.map((i) => i.deco.range(i.from, i.to)), true)
 }
 
+// ------------------------------------------------------------------ 表格光标定位（供面板用）
+
+/** 光标落在哪个表格的哪一格 */
+export interface TableHit {
+  block: TableBlock
+  /** 块内行号：0 = 表头，1 = 分隔行，2+ = 数据行 */
+  rowIndex: number
+  /** 列索引（0 起） */
+  colIndex: number
+  /** 这一组行的最大列数 */
+  colCount: number
+}
+
+/**
+ * 反查光标所在的表格与单元格。
+ *
+ * 列索引靠**数前面有几个 `|`** 得到，而不是在 splitRow 的结果上做偏移映射 ——
+ * 后者遇到转义竖线 `\|` 和首尾缺竖线的写法要处理一堆边界，数分隔符反而更稳。
+ */
+export function tableAt(state: EditorState, pos: number): TableHit | null {
+  for (const block of findTables(state)) {
+    if (pos < block.from || pos > block.to) continue
+
+    const line = state.doc.lineAt(pos)
+    const rowIndex = line.number - block.firstLine
+
+    const cells = splitRow(line.text)
+    let colIndex = columnAt(line.text, pos - line.from)
+    if (cells.length > 0) colIndex = Math.min(colIndex, cells.length - 1)
+
+    const colCount = Math.max(
+      block.header.length,
+      block.aligns.length,
+      ...block.rows.map((r) => r.length)
+    )
+    return { block, rowIndex, colIndex: Math.max(0, colIndex), colCount }
+  }
+  return null
+}
+
 /**
  * **必须用 StateField 而不是 ViewPlugin**。
  *
@@ -220,7 +267,9 @@ function build(state: EditorState): DecorationSet {
 export const tableWidgetField = StateField.define<DecorationSet>({
   create: (state) => build(state),
   update(value, tr) {
-    if (tr.docChanged || tr.selection) return build(tr.state)
+    if (tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setSourceMode))) {
+      return build(tr.state)
+    }
     return value.map(tr.changes)
   },
   provide: (f) => EditorView.decorations.from(f),

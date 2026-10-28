@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('api', {
   getCurrentTheme: () => ipcRenderer.invoke('theme:getCurrent'),
   setCurrentTheme: (name: string) => ipcRenderer.invoke('theme:setCurrent', name),
   translateTheme: (name: string) => ipcRenderer.invoke('theme:translate', name),
+  /** 导出 PDF：html 是渲染层拼好的整页（含主题 CSS），主进程负责选路径 + 隐藏窗口打印 */
+  exportPdf: (html: string, suggested: string) => ipcRenderer.invoke('export:pdf', html, suggested),
 
   saveDraft: (path: string, text: string) => ipcRenderer.invoke('draft:save', path, text),
   getDraft: () => ipcRenderer.invoke('draft:get'),

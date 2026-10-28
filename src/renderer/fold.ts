@@ -15,6 +15,7 @@ import {
 } from '@codemirror/state'
 import { createFenceState, stepFence } from './fence.js'
 import { parseHeading } from './heading.js'
+import { isSourceMode, setSourceMode } from './viewmode.js'
 
 /**
  * 折叠（策划案 M5）：标题与代码块可收起。
@@ -152,6 +153,9 @@ export function foldedCount(state: EditorState): number {
 // ------------------------------------------------------------------ 装饰
 
 function buildFoldDecorations(state: EditorState): DecorationSet {
+  // 源码模式下不折叠：折叠是为了藏内容，和"看源码"正好相反
+  if (isSourceMode(state)) return Decoration.none
+
   const doc = state.doc
   const folded = state.field(foldedField, false) ?? []
   const blocks = foldBlocks(doc)
@@ -188,8 +192,11 @@ function buildFoldDecorations(state: EditorState): DecorationSet {
 const foldDecorations = StateField.define<DecorationSet>({
   create: (state) => buildFoldDecorations(state),
   update(deco, tr) {
-    // 只有文档变了、或者有人点了折叠，才需要重算（换光标不影响折叠）
-    if (tr.docChanged || tr.effects.some((e) => e.is(toggleFoldEffect))) {
+    // 只有文档变了、有人点了折叠、或切了源码模式，才需要重算（换光标不影响折叠）
+    if (
+      tr.docChanged ||
+      tr.effects.some((e) => e.is(toggleFoldEffect) || e.is(setSourceMode))
+    ) {
       return buildFoldDecorations(tr.state)
     }
     return deco.map(tr.changes)
@@ -222,6 +229,7 @@ class FoldMarker extends GutterMarker {
 export const foldGutter = gutter({
   class: 'jd-fold-gutter',
   lineMarker(view, line) {
+    if (isSourceMode(view.state)) return null
     const doc = view.state.doc
     const num = doc.lineAt(line.from).number
     if (!foldStartLines(doc).has(num)) return null

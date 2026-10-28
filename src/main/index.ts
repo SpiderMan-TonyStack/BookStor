@@ -65,6 +65,7 @@ async function buildMenu(): Promise<void> {
         mi('open-library', keymap),
         { type: 'separator' },
         mi('save', keymap),
+        mi('export-pdf', keymap),
         { type: 'separator' },
         { role: 'quit', label: '退出' },
       ],
@@ -105,6 +106,7 @@ async function buildMenu(): Promise<void> {
       submenu: [
         mi('focus-mode', keymap),
         mi('typewriter-mode', keymap),
+        mi('source-mode', keymap),
         { type: 'separator' },
         { role: 'reload', label: '重新加载' },
         { role: 'toggleDevTools', label: '开发者工具' },
@@ -241,6 +243,61 @@ ipcMain.handle('img:save', async (_e, notePath: string, base64: string, ext: str
 ipcMain.handle('img:brokenOf', async (_e, filePath: string) => scanBrokenImagesOf(filePath))
 
 ipcMain.handle('img:brokenAll', async (_e, root: string) => scanBrokenImages(root))
+
+/**
+ * 导出 PDF：渲染层已经拼好整页 HTML（含翻译后的主题 CSS），
+ * 这里只负责"选路径 → 交给隐藏窗口打印"。
+ *
+ * 为什么用隐藏窗口而不是主窗口直接 printToPDF：
+ * 编辑器是 CM6 虚拟化的，屏幕上只有视口那几十行有 DOM，直接打印会得到大片空白。
+ * 隐藏窗口里放的是**静态 HTML**，全文都在，纸张尺寸也由 @page 决定。
+ */
+ipcMain.handle('export:pdf', async (_e, html: string, suggested: string) => {
+  if (!mainWindow) return { ok: false, error: '窗口不存在' }
+
+  const res = await dialog.showSaveDialog(mainWindow, {
+    title: '导出 PDF',
+    defaultPath: suggested,
+    filters: [{ name: 'PDF 文档', extensions: ['pdf'] }],
+  })
+  if (res.canceled || !res.filePath) return { ok: false, canceled: true }
+
+  const tmpDir = await fs.mkdtemp(path.join(app.getPath('temp'), 'jiandu-pdf-'))
+  const tmpHtml = path.join(tmpDir, 'doc.html')
+  let win: BrowserWindow | null = null
+
+  try {
+    await fs.writeFile(tmpHtml, html, 'utf8')
+    win = new BrowserWindow({
+      show: false,
+      width: 900,
+      height: 1200,
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    })
+    await win.loadFile(tmpHtml)
+
+    // 等图片解码完再打印：printToPDF 不会等图片，差一秒就是一片空白
+    await win.webContents
+      .executeJavaScript(
+        `Promise.all([...document.images].map((i) => i.decode().catch(() => {}))).then(() => true)`,
+        true
+      )
+      .catch(() => {})
+
+    const pdf = await win.webContents.printToPDF({
+      printBackground: true,
+      pageSize: 'A4',
+      preferCSSPageSize: false,
+    })
+    await fs.writeFile(res.filePath, pdf)
+    return { ok: true, path: res.filePath }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  } finally {
+    if (win && !win.isDestroyed()) win.destroy()
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+  }
+})
 
 /** 当前主题目录（配置里没有就用 Typora 实测默认位置） */
 async function currentThemeDir(): Promise<string> {

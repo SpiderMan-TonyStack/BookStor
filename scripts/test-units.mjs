@@ -30,12 +30,14 @@ let fence
 let tableParse
 let commands
 let lossless
+let markdownHtml
 try {
   heading = await import('../src/renderer/heading.ts')
   fence = await import('../src/renderer/fence.ts')
   tableParse = await import('../src/renderer/table-parse.ts')
   commands = await import('../src/shared/commands.ts')
   lossless = await import('../src/main/lossless.ts')
+  markdownHtml = await import('../src/renderer/markdown-html.ts')
 } catch (err) {
   console.error(
     '✗ 加载 .ts 源文件失败\n' +
@@ -48,9 +50,10 @@ try {
 
 const { parseHeading, headingText } = heading
 const { createFenceState, stepFence } = fence
-const { splitRow, parseAlign } = tableParse
+const { splitRow, parseAlign, columnAt, joinRow } = tableParse
 const { accelFromKey, prettyKey, sameAccel } = commands
 const { decodeBuffer, encodeText } = lossless
+const { markdownToHtml } = markdownHtml
 
 // ---------------------------------------------------------------- 标题识别
 
@@ -217,6 +220,27 @@ test('table: 对齐分隔行', () => {
   assert.equal(parseAlign('| --- | oops |'), null)
 })
 
+test('table: 光标落在第几列（表格面板靠它定位）', () => {
+  // 带首竖线：第一个 `|` 只是边框，不算"进入第二列"
+  assert.equal(columnAt('| a | b |', 2), 0)
+  assert.equal(columnAt('| a | b |', 6), 1)
+  // 首尾没有竖线的写法
+  assert.equal(columnAt('a | b', 0), 0)
+  assert.equal(columnAt('a | b', 4), 1)
+  // 转义竖线 `\|` 不是分隔符，不能把列数数错
+  assert.equal(columnAt('| a \\| b | c |', 8), 0)
+  assert.equal(columnAt('| a \\| b | c |', 12), 1)
+  // 越界偏移不该炸。这里返回 1（光标停在末尾那个 `|` 之后），
+  // 由 tableAt 按这一行实际切出来的列数 clamp 回 0。
+  assert.equal(columnAt('| a |', 999), 1)
+})
+
+test('table: 单元格拼回一行', () => {
+  assert.equal(joinRow(['a', 'b']), '| a | b |')
+  assert.equal(joinRow(['', '']), '|  |  |')
+  assert.equal(joinRow(['x']), '| x |')
+})
+
 // ---------------------------------------------------------------- 快捷键录制
 
 test('keymap: 合法组合', () => {
@@ -340,4 +364,38 @@ test('lossless: 中文按 UTF-8 三字节计', () => {
   const { decoded, re } = roundtrip(buf)
   assert.equal(decoded.text, '中文\n')
   assert.ok(re.equals(buf))
+})
+
+// ---------------------------------------------------------------- HTML 导出（PDF 用）
+
+test('markdown-html: 标题 / 段落 / 行内标记', () => {
+  const html = markdownToHtml('# 标题\n\n段落 **粗** 和 *斜* 与 `code`')
+  assert.match(html, /<h1 class="jd-h1">标题<\/h1>/)
+  assert.match(html, /<strong>粗<\/strong>/)
+  assert.match(html, /<em>斜<\/em>/)
+  assert.match(html, /<code class="jd-code-inline">code<\/code>/)
+})
+
+test('markdown-html: 表格有表头且有对齐', () => {
+  const html = markdownToHtml('| a | b |\n| --- | :-: |\n| 1 | 2 |')
+  assert.match(html, /<th class="jd-table-head-cell">a<\/th>/)
+  assert.match(html, /<th class="jd-table-head-cell" style="text-align:center">b<\/th>/)
+  assert.match(html, /<td class="jd-table-cell">1<\/td>/)
+})
+
+test('markdown-html: 代码块去掉围栏、保留语言名', () => {
+  const html = markdownToHtml('```js\nconst a = 1\n```')
+  assert.match(html, /<pre class="jd-code-block"><code class="language-js">const a = 1<\/code><\/pre>/)
+})
+
+test('markdown-html: 列表项不重复包段落', () => {
+  const html = markdownToHtml('- 项一\n- 项二')
+  assert.match(html, /<li class="jd-li">项一<\/li>/)
+  assert.doesNotMatch(html, /<li class="jd-li">\s*<p/)
+})
+
+test('markdown-html: 正文里的尖括号和 & 被转义', () => {
+  const html = markdownToHtml('a < b & c > d')
+  assert.match(html, /&lt;/)
+  assert.match(html, /&amp;/)
 })

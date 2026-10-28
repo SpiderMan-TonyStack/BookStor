@@ -71,6 +71,20 @@
           <span id="jd-status-meta"></span>
         </span>
       </div>
+      <!-- 表格面板：光标在表格内时浮出，增删行列 / 改对齐。
+           固定贴底部而不是贴表格：贴表格要跟着滚动、折叠、换主题重算位置，
+           而光标在表内时视线本来就在这一块，底部固定条够得着也不会跑偏。 -->
+      <div id="jd-table-panel" class="hidden">
+        <span id="jd-tp-pos"></span>
+        <button data-act="row-add" title="在下方插入一行">+ 行</button>
+        <button data-act="row-del" title="删除当前行">− 行</button>
+        <button data-act="col-add" title="在右侧插入一列">+ 列</button>
+        <button data-act="col-del" title="删除当前列">− 列</button>
+        <span class="jd-tp-sep"></span>
+        <button data-act="align-left" title="本列左对齐">左</button>
+        <button data-act="align-center" title="本列居中">中</button>
+        <button data-act="align-right" title="本列右对齐">右</button>
+      </div>
     </main>
 
     <!-- 快捷键设置：点右侧按键框进入录制，改完即生效（不用「应用」按钮）。

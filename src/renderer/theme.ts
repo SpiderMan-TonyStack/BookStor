@@ -50,6 +50,11 @@ export function currentThemeVars(): Record<string, string> {
   return payload?.vars ?? {}
 }
 
+/** 翻译后的主题 CSS 原文（PDF 导出要把它原样塞进打印页，保证版式和屏幕上一致） */
+export function currentThemeCss(): string {
+  return payload?.css ?? ''
+}
+
 /**
  * 判断当前主题是深是浅，让 Windows 原生标题栏跟着切。
  *

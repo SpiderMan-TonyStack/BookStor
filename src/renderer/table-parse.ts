@@ -67,3 +67,27 @@ export function parseAlign(text: string): Cell['align'][] | null {
   }
   return aligns
 }
+
+/**
+ * 光标在这一行的第几列（0 起）。
+ *
+ * 靠**数前面有几个 `|`** 得到，而不是在 splitRow 的结果上做偏移映射 ——
+ * 后者遇到转义竖线 `\|` 和「首尾缺竖线」的写法要处理一堆边界，数分隔符更稳。
+ *
+ * 行首那个 `|` 只是边框，所以带首竖线的行要减一：
+ *   `| a | b |` 光标在 a 上 → 数到 1 个 `|`，减一 → 第 0 列
+ *   `a | b`     光标在 b 上 → 数到 1 个 `|`，不减 → 第 1 列
+ */
+export function columnAt(lineText: string, offset: number): number {
+  const end = Math.min(Math.max(offset, 0), lineText.length)
+  let bars = 0
+  for (let i = 0; i < end; i++) {
+    if (lineText[i] === '|' && lineText[i - 1] !== '\\') bars++
+  }
+  return lineText.trimStart().startsWith('|') ? Math.max(0, bars - 1) : bars
+}
+
+/** 单元格数组拼回一行 markdown（统一 `| a | b |` 风格） */
+export function joinRow(cells: string[]): string {
+  return `| ${cells.join(' | ')} |`
+}
