@@ -40,6 +40,8 @@ export const COMMANDS: CommandDef[] = [
   { cmd: 'typewriter-mode', label: '打字机模式', group: '视图', defaultKey: 'CmdOrCtrl+Alt+T' },
   // Typora 的源码模式习惯键，从那边迁过来不用重新记
   { cmd: 'source-mode', label: '源码模式', group: '视图', defaultKey: 'CmdOrCtrl+/' },
+  // 诊断用：翻译管线丢了哪些规则、改了哪些选择器
+  { cmd: 'theme-report', label: '主题兼容度报告', group: '视图', defaultKey: 'CmdOrCtrl+Alt+R' },
 ]
 
 /** 用户自定义的覆盖表：cmd → accelerator。空表表示全用默认 */

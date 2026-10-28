@@ -8,6 +8,7 @@ import { installKeybindings } from './keybindings.js'
 import { countWords } from './text-stats.js'
 import { setSourceMode } from './viewmode.js'
 import { installTablePanel } from './table-panel.js'
+import { openThemeReport } from './theme-report.js'
 import { markdownToHtml } from './markdown-html.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -780,6 +781,9 @@ export function runCommand(cmd: string): void {
       return
     case 'settings':
       void openSettings()
+      return
+    case 'theme-report':
+      openThemeReport()
       return
   }
 }

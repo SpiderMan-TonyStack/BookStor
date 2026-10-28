@@ -121,6 +121,7 @@ async function buildMenu(): Promise<void> {
       submenu: [
         // 这一项本身不参与自定义（改「打开设置」的键没有意义，也容易把自己锁死）
         { label: '快捷键…', click: () => send('settings') },
+        mi('theme-report', keymap),
       ],
     },
   ]

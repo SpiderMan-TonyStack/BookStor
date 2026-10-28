@@ -17,6 +17,7 @@
 | M5 阅读体验 | 标题 / 代码块折叠（gutter 三角，收起后内容从布局里消失）、专注模式（非当前段落淡出）、打字机模式（光标行居中）、状态栏字数 | ✅ |
 | M5 表格与图 | 光标进表浮出工具条（增删行列 / 三向对齐）、Mermaid 代码块渲染成图 | ✅ |
 | M5 导出与源码 | PDF 导出、源码模式（`Ctrl+/`） | ✅ |
+| M5 主题报告 | 菜单「设置 → 主题兼容度报告」：应用/丢弃条数、丢弃样例、改名对照、警告，可一键复制 | ✅ |
 
 策划案（含本机实测数据、技术决策与被推翻的假设）见 [docs/01-策划案.md](docs/01-策划案.md)。
 
@@ -69,6 +70,7 @@ src/
     markdown-html.ts  Markdown → HTML（PDF 导出用，走编辑器同一个 Lezer parser）
     viewmode.ts    源码模式开关（markers / table / fold / mermaid 四处共用）
     text-stats.ts  字数统计（中文按字、英文按词）
+    theme-report.ts 主题兼容度报告面板（应用/丢弃条数、丢弃样例、改名对照、警告）
     outline.ts     大纲（标题树 / 点击跳转 / 当前章节高亮；复用 fence.ts 跳过代码块）
     theme.ts       主题注入层（五层 CSS 顺序是契约）
     settings.ts    快捷键设置面板（录制 / 冲突检测 / 恢复默认）
@@ -88,6 +90,19 @@ Typora 主题写的是 `#write h1`、`.md-fences`，而 CM6 的行是 `.cm-line`
 3. **代码 token 配色**：主题里写的是 CodeMirror 5 的 `.cm-s-inner .cm-keyword`。翻译时剥掉作用域类、把 `.cm-*` 改名成 CM6 `classHighlighter` 输出的 `.tok-*`（`tok-keyword`/`tok-string`/`tok-comment`…），主题自带的高亮配色就原样生效。
 
 **为什么运行时翻译而不是把改好的 CSS 存进项目**：换主题、改主题随时发生。热重载让你在 Typora 里改一行、这边 500ms 内跟着变。
+
+### 主题兼容度报告（`Ctrl+Alt+R`）
+
+菜单 **设置 → 主题兼容度报告**。翻译管线的每一处取舍都在这里：
+
+- **8 个计数**：应用 / 丢弃规则、`@font-face`、`@keyframes`、内联 `@import`、`url()` 重写、内联文件数、输出行数
+- **被丢弃的规则**：通常是 Typora 应用外壳（侧栏 / 菜单 / 导出页），我们没有对应 DOM，留着也是永不生效的死规则
+- **被改名的选择器**：左边主题里写的、右边落到我们 DOM 上的 —— 想知道「`#write h1` 最后变成了什么」就看这里
+- **警告**：不影响加载，但解释了「某处为什么和 Typora 不一样」（比如 `?t=` 缓存串被丢弃、`inline-block` 标题被改成 `block + fit-content`）
+
+底部「复制报告」导出纯文本，贴这一段比截图更容易排查。
+
+> 选「（内置）」时打开会提示没有可报告的主题。
 
 ### 自带主题：rider-dark（Visual Assist Dark）
 
