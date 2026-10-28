@@ -34,6 +34,9 @@ export const COMMANDS: CommandDef[] = [
   // 和「行内代码」是两回事：行内代码插一对单反引号（`x`），这个是三反引号的独立代码块。
   // 默认键沿用 Typora 的习惯（Ctrl+Shift+K），从 Typora 迁过来的人不用重新记。
   { cmd: 'codeblock', label: '代码块', group: '格式', defaultKey: 'CmdOrCtrl+Shift+K' },
+  // 视图模式：只改"怎么看"，不动文档。默认键避开 CM6 自带的绑定（Ctrl+Shift+F 会撞搜索）。
+  { cmd: 'focus-mode', label: '专注模式', group: '视图', defaultKey: 'CmdOrCtrl+Alt+F' },
+  { cmd: 'typewriter-mode', label: '打字机模式', group: '视图', defaultKey: 'CmdOrCtrl+Alt+T' },
 ]
 
 /** 用户自定义的覆盖表：cmd → accelerator。空表表示全用默认 */

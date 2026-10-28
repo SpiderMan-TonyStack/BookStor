@@ -32,6 +32,10 @@ interface LineInfo {
   classes: string[]
   /** 用于识别块边界 */
   kind: 'code' | 'table' | 'other'
+  /** 专注模式算「当前段落」时用：这三类都是段落边界 */
+  isBlank: boolean
+  isHeading: boolean
+  isMarker: boolean
 }
 
 function classFor(text: string, inFence: boolean, isFenceMarker: boolean): string {
@@ -84,7 +88,15 @@ function buildDecorations(view: EditorView): DecorationSet {
       }
 
       if (line.number === activeLine) classes.push('jd-active')
-      infos.push({ num: line.number, from: line.from, classes, kind })
+      infos.push({
+        num: line.number,
+        from: line.from,
+        classes,
+        kind,
+        isBlank: line.text.trim() === '',
+        isHeading: parseHeading(line.text) !== null,
+        isMarker: step.isMarker,
+      })
 
       if (line.to + 1 > to) break
       pos = line.to + 1
@@ -105,6 +117,32 @@ function buildDecorations(view: EditorView): DecorationSet {
       const next = infos[i + 1]
       if (!prev || prev.kind !== 'table') cur.classes.push('jd-table-first')
       if (!next || next.kind !== 'table') cur.classes.push('jd-table-last')
+    }
+  }
+
+  // 第三轮：专注模式要的「当前段落」。
+  //
+  // 段落 = 连续的行，遇到空行 / 标题 / 列表项 / 分隔线 / 表格 / 围栏标记就断开；
+  // 代码块内部不设边界（代码里的空行不算段落分隔），所以整块算一段。
+  // 只在可见范围内算：光标一定在视口内，够用；为一个视觉效果扫全文不值。
+  const activeIdx = infos.findIndex((i) => i.num === activeLine)
+  if (activeIdx >= 0) {
+    const isBoundary = (i: LineInfo): boolean =>
+      i.isMarker ||
+      i.isHeading ||
+      i.kind === 'table' ||
+      (i.kind !== 'code' && i.isBlank) ||
+      i.classes.includes('jd-li') ||
+      i.classes.includes('jd-hr')
+
+    let lo = activeIdx
+    let hi = activeIdx
+    if (!isBoundary(infos[activeIdx]!)) {
+      while (lo - 1 >= 0 && !isBoundary(infos[lo - 1]!)) lo--
+      while (hi + 1 < infos.length && !isBoundary(infos[hi + 1]!)) hi++
+    }
+    for (let i = lo; i <= hi; i++) {
+      if (!infos[i]!.classes.includes('jd-active')) infos[i]!.classes.push('jd-active')
     }
   }
 

@@ -5,6 +5,7 @@ import { applyTheme, reloadTheme, currentThemeReport } from './theme.js'
 import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
 import { openSettings } from './settings.js'
 import { installKeybindings } from './keybindings.js'
+import { countWords } from './text-stats.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -21,6 +22,7 @@ const elEmpty = $('jd-empty')
 const elStatusPath = $('jd-status-path')
 const elStatusSave = $('jd-status-save')
 const elStatusMeta = $('jd-status-meta')
+const elStatusCount = $('jd-status-count')
 const elRecover = $('jd-recover')
 const elRecoverText = $('jd-recover-text')
 const elRecoverYes = $<HTMLButtonElement>('jd-recover-yes')
@@ -44,6 +46,10 @@ let editor: EditorHandle | null = null
 let draftTimer: number | null = null
 let outlineItems: OutlineItem[] = []
 let outlineTimer: number | null = null
+let statsTimer: number | null = null
+/** 视图模式（只在本次会话有效，不写 config） */
+let focusMode = false
+let typewriterMode = false
 
 /**
  * dirty 的唯一写入口。
@@ -63,6 +69,74 @@ const setMetaStatus = (text: string): void => {
   elStatusMeta.textContent = text
 }
 
+// ------------------------------------------------------------------ 字数统计
+
+function renderWordCount(): void {
+  if (!editor || !current) {
+    elStatusCount.textContent = ''
+    return
+  }
+  const { chars, words } = countWords(editor.getDoc())
+  elStatusCount.textContent = `${words.toLocaleString('zh-CN')} 字`
+  elStatusCount.title = `${words.toLocaleString('zh-CN')} 字 · ${chars.toLocaleString('zh-CN')} 个字符`
+}
+
+/** 300ms 防抖：每敲一个字都遍历全文不值当，字数晚半拍也没人会察觉 */
+function scheduleWordCount(): void {
+  if (statsTimer !== null) window.clearTimeout(statsTimer)
+  statsTimer = window.setTimeout(() => {
+    statsTimer = null
+    renderWordCount()
+  }, 300)
+}
+
+// ------------------------------------------------------------------ 专注 / 打字机
+
+/**
+ * 两个模式都只改「怎么看」，不动文档一个字节。
+ *
+ * 专注模式里非当前段落的行淡出。`.jd-active` 由 lineclasses.ts 按**段落**给，
+ * 不是光标所在的那一行：写着写着整段一起亮才叫专注，只亮一行反而要一直找光标。
+ */
+function setViewModes(next: { focus?: boolean; typewriter?: boolean }): void {
+  if (next.focus !== undefined) focusMode = next.focus
+  if (next.typewriter !== undefined) typewriterMode = next.typewriter
+
+  elWrite.classList.toggle('jd-focus', focusMode)
+  // 打字机本身不需要样式，但要有这个 class 才能从 DOM 判断"现在开着没有"
+  // （状态栏文字会被主题翻译报告覆盖，不能当状态用）
+  elWrite.classList.toggle('jd-typewriter', typewriterMode)
+
+  const on: string[] = []
+  if (focusMode) on.push('专注')
+  if (typewriterMode) on.push('打字机')
+  setMetaStatus(on.length > 0 ? `视图：${on.join(' + ')}` : '视图：常规')
+
+  if (typewriterMode) typewriterScroll()
+}
+
+/**
+ * 把光标行滚到视口垂直居中。
+ *
+ * 滚动容器是 `#write`，不是 `.cm-scroller`（后者被设成 overflow:visible），
+ * 所以 `EditorView.scrollIntoView()` 在这里无效 —— 自己算：
+ * 光标相对容器顶部的位移，减去半个视口高度，就是需要追加的滚动量。
+ */
+function typewriterScroll(): void {
+  if (!typewriterMode || !editor) return
+  const coords = editor.view.coordsAtPos(editor.view.state.selection.main.head)
+  if (!coords) return
+  const box = elWrite.getBoundingClientRect()
+  elWrite.scrollTop += coords.top - box.top - elWrite.clientHeight / 2
+}
+
+function scheduleTypewriter(): void {
+  if (!typewriterMode) return
+  // 光标移动后 DOM 可能还没重排完，等一拍再量。
+  // 用 setTimeout 而不是 rAF：窗口不可见时 rAF 会被完全暂停（实测 600ms 0 回调）。
+  window.setTimeout(typewriterScroll, 0)
+}
+
 // ------------------------------------------------------------------ 编辑器
 
 function ensureEditor(): EditorHandle {
@@ -74,11 +148,16 @@ function ensureEditor(): EditorHandle {
       scheduleSave()
       scheduleDraft()
       scheduleOutline()
+      scheduleWordCount()
+      scheduleTypewriter()
     },
     onSaveRequest: () => void doSave(),
     onPasteImage: (file) => void handleImage(file),
     onDropImage: (file) => void handleImage(file),
-    onSelection: (pos) => highlightOutline(elOutline, outlineItems, pos),
+    onSelection: (pos) => {
+      highlightOutline(elOutline, outlineItems, pos)
+      scheduleTypewriter()
+    },
   })
   return editor
 }
@@ -359,6 +438,7 @@ async function openNote(filePath: string): Promise<void> {
 
   // 新笔记的大纲：标题全变了，必须整棵重建
   rebuildOutline()
+  renderWordCount()
 }
 
 function fmtSize(n: number): string {
@@ -575,6 +655,12 @@ export function runCommand(cmd: string): void {
       return
     case 'codeblock':
       if (ed) insertCodeBlock(ed.view)
+      return
+    case 'focus-mode':
+      setViewModes({ focus: !focusMode })
+      return
+    case 'typewriter-mode':
+      setViewModes({ typewriter: !typewriterMode })
       return
     case 'settings':
       void openSettings()

@@ -16,6 +16,7 @@ import { tags as t, classHighlighter } from '@lezer/highlight'
 import { lineClassPlugin } from './lineclasses.js'
 import { markdownMarksPlugin, docBaseField, setDocBase } from './markers.js'
 import { tableWidgetField } from './table.js'
+import { foldExtensions } from './fold.js'
 
 /**
  * 语法高亮 —— 刻意克制。
@@ -126,6 +127,11 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
     //     注意它必须是 StateField，**不能**用 ViewPlugin —— CM6 禁止插件提供 block 装饰
     //     （`RangeError: Block decorations may not be specified via plugins`），见 table.ts 注释。
     tableWidgetField,
+
+    // --- 折叠（M5）：标题与代码块可收起。
+    //     内容必须用 block replace 从布局里换掉，不能用 CSS display:none ——
+    //     隐藏的行不在 CM6 的高度模型里，会让滚动/点击/光标全部偏移。
+    ...foldExtensions,
 
     // --- 编辑行为
     EditorView.updateListener.of((u) => {

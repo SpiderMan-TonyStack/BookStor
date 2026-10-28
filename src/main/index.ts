@@ -42,7 +42,14 @@ function mi(cmd: string, keymap: Keymap): Electron.MenuItemConstructorOptions {
   const accel = keyOf(cmd, keymap)
   return {
     label: def?.label ?? cmd,
-    ...(accel && !captureMode ? { accelerator: accel } : {}),
+    // `registerAccelerator: false` —— accelerator 只用来在菜单里**显示**，不真正注册。
+    //
+    // 注册了就会先被主进程吃掉，和渲染层 keybindings 形成两条触发路径。
+    // 格式化类命令双触发只是把字裹两层，60ms 去重盖得住；但 toggle 类命令
+    // （专注模式 / 打字机）双触发会"开一次又关一次"，按下去毫无反应，
+    // 状态栏还显示回到「常规」—— 实测去重挡不住（IPC 到达间隔偶尔超过 60ms）。
+    // 现在只剩渲染层一条路径，行为可预测。
+    ...(accel && !captureMode ? { accelerator: accel, registerAccelerator: false } : {}),
     click: () => send(cmd),
   }
 }
@@ -96,6 +103,9 @@ async function buildMenu(): Promise<void> {
     {
       label: '视图',
       submenu: [
+        mi('focus-mode', keymap),
+        mi('typewriter-mode', keymap),
+        { type: 'separator' },
         { role: 'reload', label: '重新加载' },
         { role: 'toggleDevTools', label: '开发者工具' },
         { type: 'separator' },

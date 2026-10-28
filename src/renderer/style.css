@@ -797,3 +797,74 @@ body {
 #jd-settings-msg.is-err {
   color: #e0746a;
 }
+
+/* ---------------------------------------------------------------- 字数统计 */
+
+/* 数字等宽：字数从 999 跳到 1000 时不会把右边的元素挤动 */
+#jd-status-count {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------------- 折叠（M5） */
+
+/* 折叠把手挂在 CM6 的 gutter 里（编辑器盒子内部、`#write` 内边距之外），
+   所以对正文宽度的影响只有这 14px；背景透明，主题切换时也不会露馅。 */
+#write .jd-fold-gutter {
+  width: 14px;
+  min-width: 14px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+#write .jd-fold-gutter .cm-gutterElement {
+  /* 必须 flex 居中，不能靠 line-height：gutter 元素的高度是 CM6 按行测出来的
+     （标题行 65px、正文行 32px 各不相同），而三角自己的 line-height 只有 26px，
+     基线对齐会让它偏到行的上三分之一去。flex 才能跟着每行真实的盒子高度居中。
+     注意第一次排查时我量到的 h:0 是 CM6 的**隐藏 spacer**（initialSpacer），
+     不是真实行标记 —— 别被它误导。 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+/* 三角平时半透明，鼠标移到那一栏才变实 —— 折叠是偶尔用的，不该一直抢视线 */
+#write .jd-fold-toggle {
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  /* 展开状态：三角朝下 */
+  transform: rotate(90deg);
+  opacity: 0.55;
+  transition: transform 120ms ease, opacity 120ms ease;
+}
+
+/* 折叠状态：三角朝右 */
+#write .jd-fold-toggle.is-folded {
+  transform: rotate(0deg);
+}
+
+#write .jd-fold-gutter:hover .jd-fold-toggle {
+  opacity: 1;
+}
+
+/* ---------------------------------------------------------------- 专注模式 */
+
+/* 非当前段落的行淡出。
+   用 opacity 而不是改 color：主题的正文色常常是变量或复杂继承，改 color 会丢掉主题的表达。
+   被淡化的代码块边框会一起变淡 —— 这在专注模式下是预期（整段退场），
+   跟「围栏行不能用 opacity 淡化」那条规则不冲突：那条说的是**正常状态**下围栏行
+   要承载代码块边框，而这里当前段落的围栏行 opacity 仍是 1。 */
+#write.jd-focus .cm-line {
+  opacity: 0.25;
+  transition: opacity 120ms ease;
+}
+
+#write.jd-focus .cm-line.jd-active {
+  opacity: 1;
+}

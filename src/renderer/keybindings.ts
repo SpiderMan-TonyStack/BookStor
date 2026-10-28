@@ -11,8 +11,10 @@
  * stopPropagation —— capture 阶段早于 CM6 挂在内容元素上的 handler，
  * CM6 完全收不到这个 keydown，也就不会顺手做别的事。
  *
- * 菜单那边仍然保留 accelerator：一是菜单里能显示当前快捷键（说明书作用），
- * 二是两条路径都执行同一个 runCommand，谁先赢结果都一样，不会分叉。
+ * 菜单那边仍然**显示** accelerator，但主进程用 `registerAccelerator: false` 关掉了
+ * 真正的注册（见 `main/index.ts` 的 `mi()`）：菜单只当说明书看，按键一律走这里。
+ * 否则两边各触发一次 —— 格式化命令只是裹两层，toggle 类命令（专注模式 / 打字机）
+ * 会"开"完立刻"关"，按下去像完全没反应。
  */
 
 import { COMMANDS, keyOf, accelFromKey, sameAccel, type Keymap } from '../shared/commands.js'
