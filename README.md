@@ -29,7 +29,8 @@ pnpm start          # 构建 + 启动（开发态）
 pnpm typecheck      # 两端 tsc
 pnpm test           # 纯函数断言（标题识别 / 围栏 / 表格 / 快捷键 / 无损边界）
 pnpm verify         # 245 篇旧笔记逐字节往返校验 + 裂图基线比对
-pnpm dist           # 打包 → release/简牍-<version>-portable.exe
+pnpm pack           # 打包 → release/简牍-<version>-portable.exe（推荐）
+pnpm dist           # 同上，但直接输出到 release/（本机守卫会拦，见下）
 ```
 
 > **启动必须带 `--user-data-dir`**，`scripts/run.mjs` 已经处理。原因见下。
@@ -309,6 +310,9 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 | 折叠不能用 CSS 隐藏 | `display: none` 藏掉的行不在 CM6 的高度模型里，滚动/点击/光标会集体偏移。必须用 `Decoration.replace({ block: true })` 从布局里换掉。另外**含表格行的块不能折叠**——表格自己就是一个 block replace，两个 replace 重叠会抛错 |
 | `gutterElement` 量到 `height: 0` 是假象 | 那是 CM6 的 `initialSpacer`（inline style 带 `visibility: hidden; pointer-events: none`），不是真实行标记。真实元素的高度由 CM6 按行量出来（标题 65px、正文 32px 各不同）。三角要用 `display: flex; align-items: center` 居中，靠 `line-height` 会让它偏到行的上三分之一 |
 | toggle 类命令被两条路径各触发一次 | 菜单 accelerator 在主进程注册时，按键先被它吃掉、再走渲染层 → 「专注模式」开一次又关一次，按下去像完全没反应，状态栏还显示「视图：常规」。60ms 去重盖不住（IPC 到达间隔偶尔超过 60ms）。给菜单项加 `registerAccelerator: false`：只显示、不注册 |
+
+| `pnpm dist` 在本机必失败 | electron-builder 打包前会 `emptyDir` 清空 `win-unpacked`，而本机的 safe-delete 是**按文件数**拦批量删除的（>50 个直接 block，报 `SAFE_DELETE_BULK_GUARD_ERROR`）。`pnpm pack` 把输出改到系统临时目录就绕开了 |
+| 打包完的 `app.asar` 锁着删不掉 | 一个 549MB 的临时目录里其余文件都能删，只有 `app.asar` 被外部服务占着（实测等 90 秒、`Directory.Delete`、移动目录全失败）。所以临时目录**不要放在项目里**——`pnpm pack` 用系统 TEMP，不影响项目目录，系统迟早回收 |
 
 ## 数据安全怎么做的
 

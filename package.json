@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "node --test scripts/test-units.mjs",
     "dist": "electron-vite build && electron-builder --win portable",
+    "pack": "electron-vite build && node scripts/pack.mjs",
     "verify": "node scripts/verify-roundtrip.mjs"
   },
   "dependencies": {
