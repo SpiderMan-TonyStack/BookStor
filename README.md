@@ -54,6 +54,7 @@ src/
     editor.ts      CM6 实例与扩展
     lineclasses.ts 行级语义 class（.jd-h1…/.jd-code-line…），两轮扫描出「首行/末行」用于拼框
     fence.ts       围栏状态机（按开启缩进配对），lineclasses 与 markers 共用同一份判断
+    heading.ts     标题识别（行首 `## x` + 列表项里的 `- ## x`），三处共用同一份判断
     markers.ts     语法标记显隐 + 图片 widget（font-size:0 隐藏，不改文本）
     table.ts       表格真渲染（StateField 块装饰；光标进表退回源码）
     outline.ts     大纲（标题树 / 点击跳转 / 当前章节高亮；复用 fence.ts 跳过代码块）
@@ -197,6 +198,7 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 | `::-webkit-scrollbar-thumb` 的 `currentColor` 是**容器**的颜色 | 所以滚动块颜色可以直接从主题正文色派生，不用为每个主题配一个滚动条色。但主题若写了 `background: var(--scrollbar-color) !important`（dyzj 系列就是这样），主题赢——这是主题的表达，别去压 |
 | 光标是纯黑的，和主题没关系 | CM6 默认 `.cm-cursor { border-left: 1.2px solid black }`，深色适配那条是 `&dark .cm-cursor`——只有用过 `EditorView.theme(…, {dark:true})` 才会生成 `.cm-dark` 类。本项目颜色全交给 Typora 主题，`.cm-dark` 永远不存在，所以深色主题下光标一直是黑的（实测 `hasCmDark: false`）。改为 `border-left-color: currentColor` 跟随正文色，且**必须带 `#write` 前缀**（1,1,0）：CM6 的样式是运行时注入到 `<head>` 末尾，同特异性它赢 |
 | ↑/↓ 一按就「冲到选区另一头」 | CM6 的 `cursorByLine` 对**非空选区**直接执行 `rangeEnd(range, forward)`：`↑` 把光标放到选区 from、`↓` 放到 to，**塌陷之后不再移动**。选中一个 20 行的代码块、在底部按一下 `↑`，光标瞬间移到块首，看着就像「直接到顶部」。现在 `editor.ts` 用 `arrowFromCursor()` 提前接管：从 `head`（用户最后一次拖到的位置）起步移动一行。只在「单光标 + 有选区」时接管，其余交回默认实现 |
+| 列表项里的标题也是标题 | 库里 **50 个文件、232 行**写成 `- ## 标题`（多半是从网页复制时被套上列表符号）。原来的标题正则只认行首 `#`，于是这些行既不是标题、也进不了大纲，`##` 还照样显示。现在 `heading.ts` 的 `parseHeading()` 同时认两种写法，行 class / 标记隐藏 / 大纲三处共用，`- ` 和 `##` 一起隐藏。普通标题仍然不允许前导缩进（放宽会把缩进代码块里的 `#` 误判成标题） |
 
 ## 数据安全怎么做的
 

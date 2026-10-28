@@ -1,6 +1,7 @@
 import { EditorView, Decoration, type DecorationSet, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view'
 import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 import { createFenceState, stepFence } from './fence.js'
+import { parseHeading } from './heading.js'
 
 /**
  * M2：语法标记显隐。
@@ -37,7 +38,7 @@ class MarkerWidget extends WidgetType {
   }
 }
 
-const RE_HEADING = /^(#{1,6})([ \t]+)/
+// 标题判断统一走 heading.ts（同时认行首 `## x` 和列表项里的 `- ## x`）
 const RE_QUOTE = /^([ \t]{0,3}>[ \t]?)/
 const RE_TASK = /^([ \t]*)([-*+])([ \t]+)\[([ xX])\]([ \t]+)/
 const RE_LIST = /^([ \t]*)([-*+]|\d+[.)])([ \t]+)/
@@ -299,13 +300,11 @@ function buildDecorations(view: EditorView): DecorationSet {
         continue
       }
 
-      // 标题
-      const h = RE_HEADING.exec(text)
+      // 标题（含列表项里的 `- ## x`）：把 `-`、`#`、空格整段藏掉，只留标题文字
+      const h = parseHeading(text)
       if (h) {
-        const hashes = h[1] ?? ''
-        const spaces = h[2] ?? ''
-        push(line.from, line.from + hashes.length + spaces.length)
-        scanInline(text.slice(hashes.length + spaces.length), line.from + hashes.length + spaces.length, push, imageAt)
+        push(line.from, line.from + h.markEnd)
+        scanInline(text.slice(h.markEnd), line.from + h.markEnd, push, imageAt)
         continue
       }
 

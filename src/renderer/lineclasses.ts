@@ -1,6 +1,7 @@
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate } from '@codemirror/view'
 import { RangeSetBuilder } from '@codemirror/state'
 import { createFenceState, stepFence } from './fence.js'
+import { parseHeading } from './heading.js'
 
 /**
  * 行级语义 class —— Typora 主题选择器映射的 DOM 契约（策划案 §5.2-B）。
@@ -18,7 +19,6 @@ import { createFenceState, stepFence } from './fence.js'
  * 只把每行染成同色会得到一叠断开的框，所以首末行要额外标记（详见 theme-fix.css）。
  */
 
-const HEADING = /^(#{1,6})\s/
 const QUOTE = /^\s{0,3}>/
 const UL = /^\s{0,3}[-*+]\s/
 const OL = /^\s{0,3}\d+[.)]\s/
@@ -36,8 +36,9 @@ interface LineInfo {
 
 function classFor(text: string, inFence: boolean, isFenceMarker: boolean): string {
   if (inFence || isFenceMarker) return 'jd-code-line'
-  const h = text.match(HEADING)
-  if (h) return `jd-h${h[1]!.length}`
+  // 标题（含 `- ## x` 这种列表项里嵌的标题，见 heading.ts）
+  const h = parseHeading(text)
+  if (h) return `jd-h${h.level}`
   if (TASK.test(text)) return 'jd-li jd-task'
   if (HR.test(text)) return 'jd-hr'
   if (QUOTE.test(text)) return 'jd-quote'

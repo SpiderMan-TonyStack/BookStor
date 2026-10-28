@@ -15,6 +15,7 @@
 import type { EditorState } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import { createFenceState, stepFence } from './fence.js'
+import { parseHeading, headingText } from './heading.js'
 
 export interface OutlineItem {
   /** 1-based 行号 */
@@ -27,9 +28,11 @@ export interface OutlineItem {
   text: string
 }
 
-/** ATX 标题：`## 标题`。结尾的 `##`（可选）要去掉，Typora 允许 `## 标题 ##` */
-const ATX = /^(#{1,6})[ \t]+(.*)$/
-
+/**
+ * 标题判断统一走 heading.ts：除了行首 `## 标题`，还要认 `- ## 标题`
+ * （列表项里嵌的标题，库里 50 个文件这么写，Typora 也会收进大纲）。
+ * 收尾的可选 `##` 在 headingText() 里剥掉。
+ */
 export function computeOutline(state: EditorState): OutlineItem[] {
   const items: OutlineItem[] = []
   const fence = createFenceState()
@@ -40,14 +43,13 @@ export function computeOutline(state: EditorState): OutlineItem[] {
     // 围栏标记行和代码块内部一律不看
     if (step.isMarker || step.inside) continue
 
-    const m = ATX.exec(line.text)
-    if (!m) continue
+    const info = parseHeading(line.text)
+    if (!info) continue
 
-    const level = m[1]!.length
-    const text = (m[2] ?? '').trim().replace(/[ \t]+#+[ \t]*$/, '')
+    const text = headingText(line.text)
     if (!text) continue
 
-    items.push({ line: n, from: line.from, level, text })
+    items.push({ line: n, from: line.from, level: info.level, text })
   }
 
   return items
