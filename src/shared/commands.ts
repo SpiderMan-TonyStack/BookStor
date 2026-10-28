@@ -147,13 +147,17 @@ export function accelFromKey(e: KeyLike): AccelResult {
 }
 
 function normalizeKey(key: string): string | null {
+  // 别名必须**先**查：`' '`（空格）的 length 是 1，会掉进下面的单字符分支，
+  // 于是 `KEY_ALIAS[' '] = 'Space'` 永远轮不到 —— 录出来的 accelerator 变成
+  // `CmdOrCtrl+ `（尾部一个空格），Electron 不认，等于绑了一个永远不触发的键。
+  const alias = KEY_ALIAS[key]
+  if (alias) return alias
+
   if (key.length === 1) {
     // 字母统一大写，避免 'ctrl+s' 和 'Ctrl+S' 被当成两个不同的键；
     // 符号（` / - / = / 等）原样保留，Electron 认这些字符
     return key.toUpperCase()
   }
-  const alias = KEY_ALIAS[key]
-  if (alias) return alias
   // F1–F24 的 e.key 本来就是 'F1' 这种形式
   if (/^F\d{1,2}$/.test(key)) return key
   return null

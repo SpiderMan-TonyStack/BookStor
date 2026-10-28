@@ -12,6 +12,7 @@
     "start": "npm run build && node scripts/run.mjs",
     "app": "node scripts/run.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "node --test scripts/test-units.mjs",
     "dist": "electron-vite build && electron-builder --win portable",
     "verify": "node scripts/verify-roundtrip.mjs"
   },

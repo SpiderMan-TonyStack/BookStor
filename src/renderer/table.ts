@@ -1,5 +1,6 @@
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
 import { type EditorState, RangeSet, StateField } from '@codemirror/state'
+import { splitRow, parseAlign, type Cell } from './table-parse.js'
 
 /**
  * 表格渲染：把「一串 `|a|b|` 行」变成真正的 `<table>`。
@@ -16,51 +17,7 @@ import { type EditorState, RangeSet, StateField } from '@codemirror/state'
  * 那里藏的是**行内**字符（光标要能落进去），这里换的是**整个块**（光标会整体跳出）。
  */
 
-interface Cell {
-  text: string
-  align: 'left' | 'center' | 'right' | null
-}
-
-/** `|a|b|` → ['a','b']，容忍首尾没有竖线、以及单元格里的转义竖线 `\|` */
-function splitRow(text: string): string[] {
-  let s = text.trim()
-  if (s.startsWith('|')) s = s.slice(1)
-  if (s.endsWith('|') && !s.endsWith('\\|')) s = s.slice(0, -1)
-  const out: string[] = []
-  let cur = ''
-  for (let i = 0; i < s.length; i++) {
-    const ch = s[i]
-    if (ch === '\\' && s[i + 1] === '|') {
-      cur += '|'
-      i++
-      continue
-    }
-    if (ch === '|') {
-      out.push(cur.trim())
-      cur = ''
-      continue
-    }
-    cur += ch
-  }
-  out.push(cur.trim())
-  return out
-}
-
-const SEP_CELL = /^:?-{1,}:?$/
-
-/** 分隔行：`| --- | :-: |` —— 决定有哪些列、以及每列的对齐方式 */
-function parseAlign(text: string): Cell['align'][] | null {
-  const cells = splitRow(text)
-  if (cells.length === 0) return null
-  const aligns: Cell['align'][] = []
-  for (const c of cells) {
-    if (!SEP_CELL.test(c.replace(/\s/g, ''))) return null
-    const l = c.startsWith(':')
-    const r = c.endsWith(':')
-    aligns.push(l && r ? 'center' : r ? 'right' : l ? 'left' : null)
-  }
-  return aligns
-}
+/** 行解析（`Cell` / `splitRow` / `parseAlign`）在 table-parse.ts —— 纯函数、无 CM6 依赖，可单独测。 */
 
 /** 单元格内的行内语法：只处理最常见的四种，其余原样显示 */
 function renderInline(el: HTMLElement, text: string): void {
