@@ -1,6 +1,6 @@
 {
   "name": "jiandu",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "简牍 · 个人桌面笔记软件（Typora 主题兼容）",
   "main": "./out/main/index.js",
   "author": "SpiderMan-TonyStack",

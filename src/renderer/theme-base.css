@@ -149,9 +149,22 @@ html[data-builtin='dark'] {
 
 /* 表格（typora 的真 <table> 渲染，见 table.ts）。
    颜色/边框宽度由主题的 table/tr/th/td 规则决定，这里只给结构骨架兜底：
-   border-collapse 是必须的，否则相邻单元格各画一条边，线会变粗一倍。 */
+   border-collapse 是必须的，否则相邻单元格各画一条边，线会变粗一倍。
+
+   ⚠ 间距**必须用 padding，不能用 margin** —— 这是正确性问题，不是审美：
+   表格是 `Decoration.replace({ block: true })` 的 block widget，CM6 用
+   getBoundingClientRect 量它的高度，而 **margin 不在那个矩形里**。
+   于是每张表都在高度模型之外多出 0.9rem × 2 = 27px（根字号 15px），
+   模型比真实 DOM 少算 27px，而且是**累积**的：
+     - 折叠三角是用模型坐标定位的 → 整体上移 27px，落到上一行（空行）上，
+       看着像"三角跑到别的行去了"
+     - 点击文字时 posAtCoords 也走模型 → 光标落到点击位置下方约 27px
+   与上面「行级 margin 一律清零」是同一条规则，只是表格走的是 widget 路径，
+   当初列清零名单时漏了（mermaid 和代码块都已经用的是 padding）。
+   `overflow-x: auto` 会建立 BFC，所以上下 padding 不会和孩子的外边距塌陷。 */
 #write .jd-table-wrap {
-  margin: 0.9rem 0;
+  margin: 0;
+  padding: 0.9rem 0;
   overflow-x: auto;
 }
 #write table.jd-table {
