@@ -843,6 +843,13 @@ window.api.onLibraryChanged(() => {
       if (editor) {
         editor.setDoc(onDisk.text, dirNameOf(prevPath))
         editor.setReadOnly(onDisk.validUtf8 === false)
+        // setDoc 走的是 `EditorState.create`，所有 StateField 都归零 ——
+        // 源码模式会跟着掉回 false，而模块变量 sourceMode 还是 true。
+        // 不补这一句的话，表现是：开着源码模式时别的程序存了一次文件，
+        // 源码模式就悄悄关了；更别扭的是变量和实际状态脱节，
+        // 再按一次 Ctrl+/ 会显示「已回到渲染模式」但其实什么都没变（得按两次）。
+        // openNote 里早就有同样的补丁，这条同步路径是漏网的那一个。
+        if (sourceMode) editor.view.dispatch({ effects: setSourceMode.of(true) })
       }
       rebuildOutline()
       renderWordCount()
