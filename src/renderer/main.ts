@@ -1064,9 +1064,14 @@ void (async () => {
   }
   // 配置文件读坏了？读不懂时会静默回落默认值（文件树空了 / 主题变回内置），
   // 不说明白的话用户只会觉得软件坏了。
+  //
+  // 这里只**接住**，不显示 —— 启动流程后面还有好几次 setMetaStatus
+  //（loadThemes → switchTheme 的「内置样式 · 深色」/「主题 xxx · 应用 N 条」），
+  // 当场说的话两三行之后就被盖掉了。CDP 实测：提示只在 t+0ms 存在，
+  // t+300ms 已经变成「内置样式 · 深色」，等于没说。所以挪到启动末尾再报。
+  let startupError = ''
   try {
-    const cfgErr = await window.api.getConfigError()
-    if (cfgErr) setMetaStatus(`⚠ ${cfgErr}`)
+    startupError = await window.api.getConfigError()
   } catch {
     /* 查不到就算了，不干扰启动 */
   }
@@ -1092,7 +1097,10 @@ void (async () => {
     setMetaStatus('未打开笔记库')
   }
   // 重启后恢复上次的主题（默认就用实测定下的 dyzj-dark.css）
-  if (elTheme.value) void switchTheme(elTheme.value)
+  if (elTheme.value) await switchTheme(elTheme.value)
+  // 启动期的配置错误放到**最后**说：它是唯一一句「为什么文件树空了」的解释，
+  // 一旦被主题报账盖掉，用户就只剩困惑。放在这里才是屏幕上真能读到的那一句。
+  if (startupError) setMetaStatus(`⚠ ${startupError}`)
 })()
 
 // 兜底：正常关窗路径走主进程的「保存并关闭」，这里只处理页面级刷新。
