@@ -704,8 +704,27 @@ elOpenLib.addEventListener('click', () => {
 
 // ------------------------------------------------------------------ 主题
 
+/**
+ * 下拉框里只列这几个主题，其余 `.css` 一个都不显示。
+ *
+ * **只影响这个列表，磁盘一个字节都不动**：那些主题还在 Typora 的
+ * 主题目录里（`%APPDATA%\Typora\themes\`，那是 Typora 自己的地方，
+ * 简牍只读不写）。想放回来，把名字加进这个数组就行 —— 带不带 `.css`
+ * 都认，大小写也不敏感。
+ *
+ * 两个内置档（`（内置）` / `（内置 · 深色）`）不走这里：它们是渲染层
+ * 自己拼进去的虚拟项，恒在，不受这张表影响。
+ */
+const VISIBLE_THEMES = ['rider-dark']
+
+/** 主题文件名（`rider-dark.css`）是否在上面那张白名单里 */
+function isThemeVisible(file: string): boolean {
+  const base = file.replace(/\.css$/i, '').toLowerCase()
+  return VISIBLE_THEMES.some((n) => n.toLowerCase() === base)
+}
+
 async function loadThemes(selected?: string): Promise<void> {
-  const themes = await window.api.getThemes()
+  const themes = (await window.api.getThemes()).filter(isThemeVisible)
   elTheme.textContent = ''
   const builtin = document.createElement('option')
   builtin.value = ''
@@ -725,6 +744,13 @@ async function loadThemes(selected?: string): Promise<void> {
   }
   if (selected === BUILTIN_DARK) elTheme.value = BUILTIN_DARK
   else if (selected && themes.includes(selected)) elTheme.value = selected
+  else if (selected) {
+    // config 里还留着已被藏起来的主题名（以前切过 dyzj-dark 之类）。
+    // 下拉里现在没有它，`elTheme.value` 会被浏览器吃掉、落回第一项，
+    // 而 config 里仍写着旧名字 —— 下次启动再走一遍同样的回落，永远对不上。
+    // 这里顺手归一成内置浅色，让配置和界面对齐。
+    void window.api.setCurrentTheme('')
+  }
 }
 
 /** 主题切换：翻译 → 注入 → 状态栏报账 */

@@ -140,13 +140,21 @@ Typora 主题写的是 `#write h1`、`.md-fences`，而 CM6 的行是 `.cm-line`
 
 代码高亮那一段用 **`.cm-s-inner .cm-*`** 写（不是 `.tok-*`）：翻译管线会把作用域剥掉、把 `.cm-*` 改名成 CM6 的 `.tok-*`，所以**同一份文件在简牍和 Typora 里是同一套颜色**。
 
-复制到 Typora 主题目录即可在「主题」下拉框里选到：
+复制到 Typora 主题目录 —— 但**光复制进去还选不到**，见下面那条。
 
 ```bash
 copy src\theme\rider-dark.css "%APPDATA%\Typora\themes\"
 ```
 
 项目里保留这份副本，换机器时不用重写。
+
+> **下拉框里只列 `rider-dark` 和两个内置档**，白名单在 `renderer/main.ts` 的 `VISIBLE_THEMES`。
+> 这**不是删主题**：Typora 主题目录里别的 `.css` 一个字节都没动（那是 Typora 自己的目录，简牍只读），
+> 只是不往下拉里列。想放回来，把名字加进那张表即可 —— 带不带 `.css` 都认，大小写不敏感。
+>
+> 顺带处理了配置残留：如果 `config.themeName` 指向一个已被藏起来的主题（以前切过 `dyzj-dark` 之类），
+> 启动时回落成内置浅色并把 config 归一成 `""` —— 否则下拉会落回第一项、而 config 里还写着旧名字，
+> 两者永远对不上且没有任何提示。
 
 ### CSS 五层顺序（是契约，别调）
 
