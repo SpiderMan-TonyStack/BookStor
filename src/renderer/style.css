@@ -812,6 +812,23 @@ body {
 
 /* 折叠把手挂在 CM6 的 gutter 里（编辑器盒子内部、`#write` 内边距之外），
    所以对正文宽度的影响只有这 14px；背景透明，主题切换时也不会露馅。 */
+
+/* 先清掉 gutter **容器**的默认外观。
+ *
+ * CM6 给 `.cm-gutters` 自带 `background: #f5f5f5` + `border-right: 1px solid #ddd`
+ * —— 那是给「行号栏」准备的一套浅色皮肤。我们这里只放折叠三角，而 Typora 主题
+ * 里压根没有 gutter 这个概念（它没有行号栏），所以没有任何一条主题规则会覆盖它，
+ * 结果就是：深色主题下正文左侧永远挂着一条 15px 的浅灰竖带，非常刺眼。
+ *
+ * 特异性 `#write .cm-gutters`（1,1,0）压过运行时注入的 `.cm-gutters`（0,1,0），
+ * 不需要 !important。`color: inherit` 是给三角用的 —— 它画的是 currentColor，
+ * 不继承的话会拿到 CM6 的默认字色，跟正文对不上。 */
+#write .cm-gutters {
+  background: transparent;
+  border: none;
+  color: inherit;
+}
+
 #write .jd-fold-gutter {
   width: 14px;
   min-width: 14px;
