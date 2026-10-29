@@ -16,6 +16,8 @@ import { setSourceMode } from './viewmode.js'
 import { installTablePanel } from './table-panel.js'
 import { openThemeReport } from './theme-report.js'
 import { markdownToHtml } from './markdown-html.js'
+import { inlineMermaidSvgs } from './mermaid-export.js'
+import { invalidateMermaidCache } from './mermaid.js'
 
 const $ = <T extends HTMLElement>(id: string): T => {
   const el = document.getElementById(id)
@@ -67,6 +69,16 @@ let typewriterMode = false
  * 不补一次的话，翻下一篇就悄悄退回渲染模式了。
  */
 let sourceMode = false
+
+/**
+ * 我们自己最后一次写盘的时刻（毫秒）。
+ *
+ * 自动保存也会触发笔记库 watcher（写盘就是改文件），照单全收的话每 800ms
+ * 就要 listTree 一次并把文件树整个重画 —— 白白滚回顶部，而树的结构
+ * （有哪些文件）根本没变，变的只是某篇的内容。所以自写后 2 秒内的通知
+ * 只处理「当前这篇变了没」，不重画树。添加/删除/改名是外部操作，不受影响。
+ */
+let selfSaveAt = 0
 
 /**
  * dirty 的唯一写入口。
@@ -278,9 +290,18 @@ elWrite.addEventListener(
   { passive: true }
 )
 
+/**
+ * 自动保存防抖时长，启动时从 config 读一次。
+ *
+ * 以前这里是硬编码的 800ms，而 config.json 里躺着一个谁都不读的
+ * `autosaveDebounceMs` —— 改它当然没用。现在真的接上了。
+ * 默认值与 config.ts 的 DEFAULTS 一致；读失败就退回 800。
+ */
+let autosaveMs = 800
+
 function scheduleSave(): void {
   if (saveTimer !== null) window.clearTimeout(saveTimer)
-  saveTimer = window.setTimeout(() => void doSave(), 800)
+  saveTimer = window.setTimeout(() => void doSave(), autosaveMs)
 }
 
 /**
@@ -328,6 +349,9 @@ async function offerCrashRecovery(): Promise<void> {
           elEmpty.classList.add('hidden')
           const ed = ensureEditor()
           ed.setDoc(draft.text, dirNameOf(draft.path))
+          // 磁盘那份若不是 UTF-8，草稿内容也只可能是乱码 —— 同样锁成只读，
+          // 否则一按 Ctrl+S 就被编码检查拒掉，用户不知道手停在哪里。
+          ed.setReadOnly(disk.validUtf8 === false)
           setActive(elTree, draft.path)
           elStatusPath.textContent = draft.path
           elStatusPath.title = draft.path
@@ -358,9 +382,33 @@ async function offerCrashRecovery(): Promise<void> {
   })
 }
 
-async function doSave(): Promise<void> {
-  if (!current || !editor || saving) return
-  if (!dirty) return
+/**
+ * 保存。
+ *
+ * 返回值是「这次调用结束时，改动是否已经安全落到磁盘」：
+ *   true  = 不用存（没改动）或已存好
+ *   false = 没能落盘（编码被拒 / 冲突时用户选了先不保存 / 写盘失败）
+ *
+ * 调用方必须看这个返回值。`openNote` 就靠它决定「能不能换下一篇」——
+ * 忽略它的话，冲突被取消之后仍会照样切换文件，编辑器里那版改动就凭空没了。
+ */
+async function doSave(force = false): Promise<boolean> {
+  // 没有笔记/编辑器 = 没有东西可丢，视为已完成
+  if (!current || !editor) return true
+  // 正在写盘：这一次不能算完成。换笔记的调用方据此先停下，
+  // 等这一轮写完再切 —— 否则切过去之后回调会把内容写到新笔记的 current 上。
+  if (saving) return false
+  if (!dirty) return true
+  // 非 UTF-8 的文件连编辑都不该发生（openNote 已把编辑器设成只读），
+  // 这里再兜一层：万一有路径绕过，也绝不让它写回磁盘。
+  if (current.validUtf8 === false) {
+    setSaveStatus('只读', 'is-error')
+    window.alert(
+      '这篇笔记不是 UTF-8 编码，为免把原文转码写坏，简牍不会保存它。\n\n' +
+        '请先用其他工具把它转成 UTF-8，再重新打开。'
+    )
+    return false
+  }
   saving = true
   setSaveStatus('保存中…')
 
@@ -370,6 +418,13 @@ async function doSave(): Promise<void> {
     eolMap: current.eolMap,
     bom: current.bom,
     endsWithNewline: current.endsWithNewline,
+    // 打开（或上次保存）时看到的 mtime：主进程拿它和磁盘现状比，
+    // 不一致说明这篇在别处被改过（Typora / 网盘同步 / git 切分支）
+    expectMtimeMs: current.mtimeMs,
+    // size 一起传：两个指纹都命中时主进程会跳过「整篇重读判编码」，
+    // 280KB 的笔记每次保存能省掉一次全量读盘
+    expectSize: current.size,
+    force,
   })
 
   saving = false
@@ -381,23 +436,67 @@ async function doSave(): Promise<void> {
     if (!stillSame) scheduleSave()
     current.mtimeMs = res.mtimeMs
     current.size = res.size
+    // 记下「刚刚是我们自己写的」：笔记库 watcher 随后会报一次变更，
+    // 那次不该被当成外部修改去重画文件树（见 onLibraryChanged 里的 selfSaveAt）
+    selfSaveAt = Date.now()
     setSaveStatus('已保存', 'is-saved')
     // 写盘成功且内容未再变 → 草稿没用了，清掉（否则下次启动会误以为崩溃过）
     if (stillSame) await window.api.clearDraft()
     window.setTimeout(() => {
       if (!dirty) setSaveStatus('')
     }, 1600)
-  } else {
-    // 写盘失败必须显式弹错（策划案 §7 红线）
-    setSaveStatus('保存失败', 'is-error')
-    window.alert(`保存失败：\n${res.error ?? '未知错误'}\n\n文件：${current.path}`)
+    return true
   }
+
+  // --- 外部修改冲突：不静默覆盖，让用户选
+  //
+  // 这是整条保存链路上唯一「选错就丢数据」的地方，所以三个选项都要说清后果：
+  // 覆盖 = 别人那版没了；放弃本地 = 我这版没了；先看看 = 什么都不动。
+  if (res.conflict) {
+    setSaveStatus('有冲突', 'is-error')
+    const keepMine = window.confirm(
+      '这篇笔记在你打开之后被其他程序修改过。\n\n' +
+        `文件：${current.path}\n\n` +
+        '点「确定」用简牍里的内容覆盖磁盘上的版本（对方的修改会丢失）。\n' +
+        '点「取消」先不保存 —— 建议重新打开这篇，看看到底改了什么。'
+    )
+    if (keepMine) {
+      // 用户明确要求覆盖：把磁盘当前的 mtime/size 记下来，避免下一轮又撞同一次冲突
+      // （size 也要跟上 —— 只更新 mtime 会让指纹对不上，白读一遍盘）
+      current.mtimeMs = res.mtimeMs
+      current.size = res.size
+      setDirty(true)
+      return await doSave(true)
+    }
+    setMetaStatus('已取消保存：磁盘上的文件比编辑器里的新')
+    return false
+  }
+
+  // --- 编码不符：主进程拒绝写盘，这里给可操作的解释（不是"未知错误"）
+  if (res.encoding) {
+    setSaveStatus('只读', 'is-error')
+    setMetaStatus('⚠ 非 UTF-8，已拒绝保存')
+    window.alert(res.error ?? '原文件不是 UTF-8 编码，已拒绝保存。')
+    return false
+  }
+
+  // 写盘失败必须显式弹错（策划案 §7 红线）
+  setSaveStatus('保存失败', 'is-error')
+  window.alert(`保存失败：\n${res.error ?? '未知错误'}\n\n文件：${current.path}`)
+  return false
 }
 
 // ------------------------------------------------------------------ 图片
 
 async function handleImage(file: File): Promise<void> {
   if (!current || !editor) return
+  // 只读笔记（非 UTF-8）插图片没有意义：内容改不动磁盘，插进去只会挂在编辑器里，
+  // 而 CM6 的 EditorState.readOnly 只拦用户输入，`view.dispatch` 发的事务照过 ——
+  // 所以这一层必须自己挡。
+  if (current.validUtf8 === false) {
+    setMetaStatus('这篇不是 UTF-8 编码，只读 —— 先转码后再插图')
+    return
+  }
   const maxBytes = 40 * 1024 * 1024
   if (file.size > maxBytes) {
     window.alert(`图片太大（${(file.size / 1024 / 1024).toFixed(1)}MB），上限 40MB。`)
@@ -425,7 +524,21 @@ function arrayBufferToBase64(buf: ArrayBuffer): string {
 // ------------------------------------------------------------------ 打开笔记
 
 async function openNote(filePath: string): Promise<void> {
-  if (current && dirty) await doSave()
+  // 有未保存的改动就先存。存不下去（非 UTF-8 / 冲突选了「先不保存」/ 写盘失败）
+  // 就不换文件 —— 直接切走等于把那版改动连同撤销历史一起扔掉，
+  // 而且用户会以为"已经自动保存过了"。
+  if (current && dirty) {
+    // 正在写盘的那一轮 doSave 会返回 false（它还没落盘），直接当成"存不下"
+    // 会让用户莫名其妙卡在原地。先等它写完，再决定能不能切。
+    for (let i = 0; i < 20 && saving; i++) {
+      await new Promise<void>((r) => window.setTimeout(r, 100))
+    }
+    const saved = await doSave()
+    if (!saved) {
+      setMetaStatus('这篇还有未保存的改动，已停在当前文件（先处理保存问题再切换）')
+      return
+    }
+  }
 
   const doc = await window.api.readNote(filePath)
   current = doc
@@ -442,6 +555,9 @@ async function openNote(filePath: string): Promise<void> {
   const ed = ensureEditor()
   // 第二个参数是笔记所在目录，图片的相对路径要靠它解析成 file:// 地址
   ed.setDoc(doc.text, dirNameOf(filePath))
+  // 非 UTF-8 文件：锁成只读。乱码上再怎么编辑也没有意义，
+  // 而一旦保存就会把原文永久转码写坏 —— 见 writeNote 的编码检查。
+  ed.setReadOnly(doc.validUtf8 === false)
   ed.focus()
   // setDoc 重建了 state，源码模式要跟着补回来（否则翻下一篇就悄悄退回渲染模式）
   if (sourceMode) ed.view.dispatch({ effects: setSourceMode.of(true) })
@@ -463,10 +579,14 @@ async function openNote(filePath: string): Promise<void> {
   elStatusPath.title = filePath
   setSaveStatus('')
 
-  const eolLabel = doc.eolStyle === 'crlf' ? 'CRLF' : doc.eolStyle === 'lf' ? 'LF' : '混合换行'
+  const eolLabel =
+    doc.eolStyle === 'crlf' ? 'CRLF' : doc.eolStyle === 'lf' ? 'LF' : doc.eolStyle === 'cr' ? 'CR' : '混合换行'
   const bits = [eolLabel, fmtSize(doc.size)]
   if (doc.bom) bits.push('BOM')
   if (!doc.endsWithNewline) bits.push('末尾无换行')
+  // 非 UTF-8 必须在状态栏就说清楚：这是**只读**的原因，
+  // 否则用户会以为「打不开/敲不进字」是软件坏了
+  if (doc.validUtf8 === false) bits.push('⚠ 非 UTF-8，只读')
   setMetaStatus(bits.join(' · '))
 
   // 裂图提示：有就明说，不静默
@@ -611,6 +731,8 @@ async function loadThemes(selected?: string): Promise<void> {
 async function switchTheme(name: string): Promise<void> {
   if (!name || name === BUILTIN_DARK) {
     await applyTheme(name)
+    // mermaid 的 SVG 把颜色烤在属性里，换主题必须让它们整批重渲染
+    invalidateMermaidCache(editor?.view)
     setMetaStatus(name === BUILTIN_DARK ? '内置样式 · 深色' : '内置样式 · 浅色')
     return
   }
@@ -618,6 +740,7 @@ async function switchTheme(name: string): Promise<void> {
   try {
     const result = await applyTheme(name)
     if (!result) return
+    invalidateMermaidCache(editor?.view)
     const r = currentThemeReport()
     const bits = [
       `应用 ${r?.kept ?? 0} 条`,
@@ -654,6 +777,79 @@ window.api.onThemeChanged(() => {
       setMetaStatus(`主题热重载失败：${(err as Error).message}`)
     }
   })()
+})
+
+// ------------------------------------------------------------------ 外部改动通知
+
+/**
+ * 笔记库里的 .md 被外部改了（Typora / Obsidian / git / 网盘同步）。
+ *
+ * 三件事，优先级从高到低：
+ *   1. **有未保存改动**：什么都不动，只提示。自动重载会把用户正在写的东西冲掉。
+ *   2. 没有改动、但磁盘上这篇变了 → 自动重载（这是最常见的情况：你在 Typora 里改了、切回来）
+ *   3. 一直重画文件树（增删改名都能看见）
+ *
+ * 注意「磁盘上这篇变了」的判定用的是 mtime，和 writeNote 的冲突检测同源 ——
+ * 两边标准必须一致，否则会出现「这边说没变、保存时又说冲突」的矛盾现象。
+ */
+let libRefreshTimer: number | null = null
+window.api.onLibraryChanged(() => {
+  // 主进程已经防抖过 500ms，这里再收一道：避免一次保存引发多轮重画
+  if (libRefreshTimer !== null) window.clearTimeout(libRefreshTimer)
+  libRefreshTimer = window.setTimeout(() => {
+    libRefreshTimer = null
+    void (async () => {
+      if (!libRoot) return
+      // 1) 文件树重画。自己刚写完盘的那几秒跳过 —— 树的结构没变，
+      //    重画只会把滚动位置和折叠状态清掉（见 selfSaveAt）
+      if (Date.now() - selfSaveAt > 2000) {
+        try {
+          const nodes = await window.api.listTree(libRoot)
+          renderTree(elTree, {
+            root: nodes,
+            activePath: current?.path ?? '',
+            onOpen: (p) => void openNote(p),
+          })
+        } catch {
+          /* 库可能被拔掉了（U 盘）或改名了，静默忽略 */
+        }
+      }
+
+      if (!current) return
+
+      // 2) 当前这篇变了没有？
+      let onDisk: NoteDoc
+      try {
+        onDisk = await window.api.readNote(current.path)
+      } catch {
+        // 文件被删了/改名了：不要把它从编辑器里抢走（用户可能正看着），只提示
+        setMetaStatus('⚠ 当前笔记已被删除或改名（编辑器里还留着内容）')
+        return
+      }
+      // mtime 用同一个容差（1ms 级抖动不算变，见 main/lossless.ts）
+      const changed = Math.abs(onDisk.mtimeMs - current.mtimeMs) > 1
+      if (!changed) return
+
+      if (dirty) {
+        // 有未保存改动 → **绝不自动覆盖**。只提示，让 Ctrl+S 时的冲突框去处理。
+        setMetaStatus('⚠ 这篇在别处被修改了；你有未保存的改动，保存时会问你怎么处理')
+        return
+      }
+
+      // 没有改动 → 直接同步成磁盘上的版本（保住光标附近的位置没意义，内容变了）
+      const prevPath = current.path
+      current = onDisk
+      setDirty(false)
+      if (editor) {
+        editor.setDoc(onDisk.text, dirNameOf(prevPath))
+        editor.setReadOnly(onDisk.validUtf8 === false)
+      }
+      rebuildOutline()
+      renderWordCount()
+      tablePanel?.refresh()
+      setMetaStatus('已同步外部修改')
+    })()
+  }, 120)
 })
 
 // ------------------------------------------------------------------ PDF 导出
@@ -697,12 +893,22 @@ function escapeForHtml(s: string): string {
  * 而让用户为了导出去装一个外部二进制不合适。
  * 改成 `markdownToHtml()` 用**编辑器同一个 Lezer parser** 生成 HTML，
  * 套上当前主题的翻译结果，交给隐藏窗口 `printToPDF` —— 纸面和屏幕是同一套样式。
+ *
+ * ```mermaid 会被换成真图（`inlineMermaidSvgs`）：以前这里明确是代码块，
+ * 因为图只活在 CM6 的 widget 缓存里、导出的静态 HTML 拿不到。现在导出前
+ * 先把它们渲染成 SVG 内联进去；渲染失败仍保留代码块，至少内容还在。
  */
 async function exportPdf(): Promise<void> {
   if (!current || !editor) return
   setMetaStatus('正在生成 PDF…')
   try {
-    const body = absolutizeImages(markdownToHtml(editor.getDoc()), dirNameOf(current.path))
+    const doc = editor.getDoc()
+    const baseDir = dirNameOf(current.path)
+    // 顺序：md → html → mermaid 换图 → 图片绝对化。
+    // mermaid 必须在图片绝对化之前做：它只关心代码块，但反过来
+    // absolutizeImages 会遍历所有 <img>，对 SVG 里的没影响 —— 顺序其实无所谓，
+    // 这里放在前面是为了让 mermaid 失败时的代码块也能正常导出图片。
+    const body = absolutizeImages(await inlineMermaidSvgs(markdownToHtml(doc), doc), baseDir)
     const title = escapeForHtml(current.path.split(/[\\/]/).pop() ?? '导出')
     const css = currentThemeCss()
     const html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
@@ -766,8 +972,21 @@ export function runCommand(cmd: string): void {
       return
     case 'save-then-quit':
       void (async () => {
-        await doSave()
-        if (!dirty) window.api.quitNow()
+        // 只有真的写到盘上才退出。存不下去（冲突取消 / 编码被拒 / 写盘失败）
+        // 就留在窗口里 —— 「保存并关闭」的结果不能是"没保存也关掉"。
+        //
+        // 正在写盘的那一轮 doSave 会返回 false（它还没落盘），这时不能直接
+        // 放弃，否则「保存并关闭」看起来像什么都没发生。等它写完再走一遍。
+        for (let i = 0; i < 20; i++) {
+          if (saving) {
+            await new Promise<void>((r) => window.setTimeout(r, 100))
+            continue
+          }
+          const saved = await doSave()
+          if (saved) window.api.quitNow()
+          return
+        }
+        setMetaStatus('写盘耗时过长，「保存并关闭」已取消 —— 请稍后再试')
       })()
       return
     case 'h1':
@@ -829,6 +1048,21 @@ void (async () => {
     onStatus: setMetaStatus,
   })
   await restoreSidebarWidth()
+  // 自动保存防抖：读配置（读失败/越界由主进程夹好，这里兜一层默认值）
+  try {
+    const ms = await window.api.getAutosaveMs()
+    if (Number.isFinite(ms) && ms >= 100) autosaveMs = ms
+  } catch {
+    /* 用默认 800ms */
+  }
+  // 配置文件读坏了？读不懂时会静默回落默认值（文件树空了 / 主题变回内置），
+  // 不说明白的话用户只会觉得软件坏了。
+  try {
+    const cfgErr = await window.api.getConfigError()
+    if (cfgErr) setMetaStatus(`⚠ ${cfgErr}`)
+  } catch {
+    /* 查不到就算了，不干扰启动 */
+  }
   const saved = await window.api.getCurrentTheme()
   await loadThemes(saved)
   const root = await window.api.getLibrary()

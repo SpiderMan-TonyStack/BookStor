@@ -6,9 +6,9 @@ export interface AppConfig {
   libraryRoot: string
   /** 最近打开的文件（重启后恢复） */
   lastFile: string
-  openTabs: string[]
   windowBounds: { x?: number; y?: number; width: number; height: number }
   sidebarWidth: number
+  /** 自动保存防抖（毫秒）。渲染层启动时通过 app:getAutosaveMs 读一次 */
   autosaveDebounceMs: number
   themeDir: string
   themeName: string
@@ -25,7 +25,6 @@ export interface AppConfig {
 const DEFAULTS: AppConfig = {
   libraryRoot: '',
   lastFile: '',
-  openTabs: [],
   windowBounds: { width: 1280, height: 860 },
   sidebarWidth: 240,
   autosaveDebounceMs: 800,
@@ -38,6 +37,20 @@ const DEFAULTS: AppConfig = {
 let cache: AppConfig | null = null
 let configPath = ''
 
+/**
+ * 上次 loadConfig 是否因为「文件存在但读不懂」而回落到了默认值。
+ *
+ * 这条以前是纯静默的：`catch { cache = DEFAULTS }` —— JSON 写坏了、权限没了、
+ * 或者手工编辑时漏了逗号，表现都是「文件树空了 / 主题变回内置」，而屏幕上
+ * 没有任何提示，用户只会觉得软件坏了。现在记下来，由主进程在启动时打印，
+ * 并让渲染层能查（`app:userData` 顺带带出去）。
+ */
+let lastLoadError = ''
+
+export function getLastLoadError(): string {
+  return lastLoadError
+}
+
 export function getConfigPath(): string {
   if (!configPath) configPath = path.join(app.getPath('userData'), 'config.json')
   return configPath
@@ -45,14 +58,28 @@ export function getConfigPath(): string {
 
 export async function loadConfig(): Promise<AppConfig> {
   if (cache) return cache
+  let raw: string
   try {
-    const raw = await fs.readFile(getConfigPath(), 'utf8')
+    raw = await fs.readFile(getConfigPath(), 'utf8')
+  } catch (err) {
+    // 文件不存在 = 首次启动，属于正常路径，不算错误
+    const code = (err as NodeJS.ErrnoException).code
+    if (code !== 'ENOENT') {
+      lastLoadError = `读不到配置文件（${code ?? 'unknown'}）：${(err as Error).message}`
+    }
+    cache = { ...DEFAULTS }
+    return cache
+  }
+  try {
     // 手工编辑配置文件时（PowerShell 的 `Set-Content -Encoding UTF8` 会带 BOM），
     // 开头的 U+FEFF 会让 JSON.parse 直接抛错，于是整个配置被静默丢成默认值 ——
     // 表现是「文件树空了」这种莫名其妙的现象。这里先剥掉。
     const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as Partial<AppConfig>
     cache = { ...DEFAULTS, ...parsed }
-  } catch {
+    lastLoadError = ''
+  } catch (err) {
+    // 文件在、但读不懂。**必须留下痕迹**，否则用户完全无从排查。
+    lastLoadError = `配置文件解析失败，已回落默认值：${(err as Error).message}`
     cache = { ...DEFAULTS }
   }
   return cache

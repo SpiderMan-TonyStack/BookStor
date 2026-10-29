@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { COMMANDS, keyOf, type Keymap } from '../shared/commands.js'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import { resolveUserDataDir } from './paths.js'
-import { loadConfig, saveConfig, defaultThemeDir } from './config.js'
+import { loadConfig, saveConfig, defaultThemeDir, getLastLoadError } from './config.js'
 import { saveDraft, readDraft, clearDraft } from './draft.js'
 import { listTree, readNote, writeNote, saveImage, scanBrokenImages, scanBrokenImagesOf } from './files.js'
-import { translateTheme, loadMapping, type ThemeResult } from './theme.js'
+import { translateTheme, loadMapping } from './theme.js'
 import type { SaveMeta, ThemePayload } from '../shared/types.js'
 
 // ⚠ 必须在任何东西用到 userData 之前执行：Chromium 在启动早期就要创建 userData
@@ -221,11 +221,14 @@ ipcMain.handle('library:open', async () => {
   if (res.canceled || res.filePaths.length === 0) return null
   const root = res.filePaths[0]!
   await saveConfig({ libraryRoot: root })
+  // 换了库就得换监听目标（watchLibraryDir 内部会关掉旧的）
+  void watchLibraryDir(root)
   return root
 })
 
 ipcMain.handle('library:set', async (_e, root: string) => {
   await saveConfig({ libraryRoot: root })
+  void watchLibraryDir(root)
   return root
 })
 
@@ -340,8 +343,6 @@ function mappingCandidates(): string[] {
   ].filter((p) => p.length > 0)
 }
 
-let lastTheme: { name: string; result: ThemeResult } | null = null
-
 ipcMain.handle('theme:translate', async (_e, name: string): Promise<ThemePayload> => {
   if (!name) throw new Error('未指定主题')
   const dir = await currentThemeDir()
@@ -354,7 +355,6 @@ ipcMain.handle('theme:translate', async (_e, name: string): Promise<ThemePayload
 
   const mapping = await loadMapping(mappingCandidates())
   const result = await translateTheme(file, mapping)
-  lastTheme = { name, result }
 
   return {
     css: result.css,
@@ -388,12 +388,63 @@ async function watchThemeDir(): Promise<void> {
   }
 }
 
+// ------------------------------------------------------------------ 笔记目录监听
+//
+// 为什么要它：以前外部改了笔记（Typora / Obsidian / git checkout / 网盘同步），
+// 简牍**只有在你按保存时**才会发现（靠 writeNote 的 mtime 冲突检测）。
+// 文件树里多了一篇、删了一篇、改了名，则要等下次启动才看见。
+//
+// 现在：监听到 .md 变化 → 防抖 → 通知渲染层。渲染层做两件事：
+//   1. 重画文件树（增删改名都能看见）
+//   2. 当前这篇若被外部改过：**没有未保存改动就自动重载**，有改动就只提示
+//      （绝不自动覆盖 —— 那和 writeNote 的冲突检测是同一件事，不能两套标准）
+let libWatcher: FSWatcher | null = null
+let libWatchTimer: NodeJS.Timeout | null = null
+let libWatched = ''
+
+async function watchLibraryDir(root: string): Promise<void> {
+  if (libWatched === root && libWatcher) return
+  libWatcher?.close()
+  libWatcher = null
+  libWatched = ''
+  if (!root) return
+  try {
+    libWatcher = watch(root, { recursive: true }, (_evt, filename) => {
+      if (!filename) return
+      const f = String(filename)
+      // 只看笔记本身：.assets 里的图片增删不改文件树，也和"这篇正文被改过"无关
+      if (!/\.(md|markdown|txt)$/i.test(f)) return
+      // 点开头的目录（.obsidian / .主题 / .xxx.assets）不参与 —— 与 listTree 同一套规则
+      if (f.split(/[\\/]/).some((seg) => seg.startsWith('.'))) return
+      if (libWatchTimer) clearTimeout(libWatchTimer)
+      // 500ms 防抖：编辑器保存会连发多个事件，一次保存触发三四次重画会闪
+      libWatchTimer = setTimeout(() => {
+        mainWindow?.webContents.send('library-changed')
+      }, 500)
+    })
+    libWatched = root
+  } catch (err) {
+    // 监听失败不影响任何既有功能（保存时的 mtime 检测仍然在），只是不能实时刷新
+    console.warn(`[简牍] 笔记目录监听失败：${(err as Error).message}`)
+  }
+}
+
 /** 渲染层拿来做「配置落在哪」的排查用（便携版可能降级到临时目录） */
 ipcMain.handle('app:userData', async () => ({
   dir: userDataInfo.dir,
   fellBack: userDataInfo.fellBack,
   reason: userDataInfo.reason,
 }))
+
+/**
+ * 配置文件读坏了没有？
+ *
+ * `loadConfig` 在读不懂时回落默认值（文件树突然空了 / 主题变回内置），
+ * 这条以前是**完全静默**的，用户只能觉得"软件坏了"。现在启动时问一次，
+ * 有错就在状态栏说明白 —— 让问题可见，比让它"看起来正常"重要。
+ * 返回空串表示没问题。
+ */
+ipcMain.handle('app:getConfigError', async () => getLastLoadError())
 
 // ------------------------------------------------------------------ 崩溃草稿
 //
@@ -480,6 +531,21 @@ ipcMain.handle('app:setSidebarWidth', async (_e, w: number) => {
   return w
 })
 
+/**
+ * 自动保存防抖时长。
+ *
+ * 这个字段以前躺在 config.json 里**没有任何代码读**（800ms 硬编码在
+ * `renderer/main.ts` 的 `scheduleSave`），附录 B 自己也承认了。现在渲染层启动时
+ * 问一次，配置改了就真的生效 —— 否则「配置文件里有这个选项」就是骗人的。
+ *
+ * 夹在 100ms..10s：太小会让每次按键都写一次盘（200KB 的笔记直接卡），
+ * 太大会让自动保存形同虚设。
+ */
+ipcMain.handle('app:getAutosaveMs', async () => {
+  const v = (await loadConfig()).autosaveDebounceMs
+  return Number.isFinite(v) ? Math.max(100, Math.min(10_000, Math.round(v))) : 800
+})
+
 /** 渲染层存完盘后请求退出（「保存并关闭」走这条路） */
 ipcMain.on('app:quit-now', () => {
   rendererDirty = false
@@ -506,9 +572,16 @@ if (!gotLock) {
     if (userDataInfo.fellBack) {
       console.warn(`[简牍] userData 降级到 ${userDataInfo.dir}（${userDataInfo.reason}）`)
     }
+    // 配置读坏了必须留痕：否则用户只看到"文件树空了、主题变回内置"，
+    // 完全不知道是 config.json 解析失败（提示由渲染层显示）。
+    const cfgErr = getLastLoadError()
+    if (cfgErr) console.warn(`[简牍] ${cfgErr}`)
+
     await buildMenu()
     await createWindow()
     await watchThemeDir()
+    // 上次的库如果还在，启动就把监听挂上，不用等用户再点一次「打开」
+    void watchLibraryDir((await loadConfig()).libraryRoot)
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) void createWindow()

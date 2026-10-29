@@ -4,6 +4,15 @@
 
 import type { CommandDef, Keymap } from './commands.js'
 
+/**
+ * 换行风格。
+ *
+ * 'cr' 是裸 CR（老 Mac / 某些导出工具），**必须单独一格**：以前它被算进 'crlf'，
+ * 而 'crlf' 不保留 eolMap，写回时每个 \r 都变成 \r\n —— 整篇字节翻倍，
+ * 用户看到的是「全文都被改了一行」。
+ */
+export type EolStyle = 'crlf' | 'lf' | 'cr' | 'mixed'
+
 export interface FileNode {
   name: string
   path: string
@@ -16,12 +25,17 @@ export interface NoteDoc {
   /** 原始字节解码后的文本（已剥 BOM，换行统一成 \n） */
   text: string
   /** 原文件的换行风格；'mixed' 时 eolMap 记录每一处原始换行序列 */
-  eolStyle: 'crlf' | 'lf' | 'mixed'
+  eolStyle: EolStyle
   eolMap: string[] | null
   /** 原文件是否带 UTF-8 BOM */
   bom: boolean
   /** 原文件末尾是否带换行符 */
   endsWithNewline: boolean
+  /**
+   * 原文件是否为合法 UTF-8。
+   * false 时编辑器里看到的是乱码，且**保存会被主进程拒绝**（见 SaveResult.encoding）。
+   */
+  validUtf8: boolean
   /** 文件 mtime（毫秒），用于外部修改检测 */
   mtimeMs: number
   /** 文件字节数 */
@@ -29,10 +43,29 @@ export interface NoteDoc {
 }
 
 export interface SaveMeta {
-  eolStyle: 'crlf' | 'lf' | 'mixed'
+  eolStyle: EolStyle
   eolMap: string[] | null
   bom: boolean
+  /**
+   * 原文末尾有没有换行。
+   *
+   * `encodeText` **不用**它：末尾换行由 split/join 天然保住（`"a"` → `"a"`、
+   * `"a\n"` → `"a"+eol`），照着这个标记补一次就是篡改（用户手动删掉末尾空行
+   * 会被我们偷偷加回去）。带在 meta 里只是让写盘那一侧看得见原文全貌。
+   */
   endsWithNewline: boolean
+  /** 打开/上次保存时看到的 mtime；不一致就报冲突。不传则不检测（兼容老调用） */
+  expectMtimeMs?: number
+  /**
+   * 打开/上次保存时看到的字节数。
+   *
+   * 和 `expectMtimeMs` 一起构成「文件没被动过」的指纹：两者都命中就跳过写盘前的
+   * 整篇读盘编码复检（否则每次保存都要把 280KB 重读一遍判 UTF-8）。
+   * 只传 mtime 不传 size 时退回保守行为 —— 每次都复检。
+   */
+  expectSize?: number
+  /** 用户已经确认「以我这版覆盖」时置 true，跳过冲突检测 */
+  force?: boolean
 }
 
 export interface SaveResult {
@@ -40,6 +73,10 @@ export interface SaveResult {
   mtimeMs: number
   size: number
   error?: string
+  /** 磁盘上的文件在编辑器打开之后被别的程序改过 */
+  conflict?: boolean
+  /** 原文件不是 UTF-8，主进程拒绝写盘（否则会把全文转码写坏） */
+  encoding?: boolean
 }
 
 export interface BrokenImage {
@@ -108,6 +145,10 @@ declare global {
       setLastFile(path: string): Promise<string>
       getSidebarWidth(): Promise<number>
       saveSidebarWidth(w: number): Promise<number>
+      /** 自动保存防抖时长（毫秒，来自 config.autosaveDebounceMs，已夹在 100..10000） */
+      getAutosaveMs(): Promise<number>
+      /** 配置文件读坏了没有？空串表示没问题（读坏时会静默回落默认值，必须显式暴露） */
+      getConfigError(): Promise<string>
       /** 把「有未保存改动」告诉主进程，关窗时用它决定拦不拦 */
       setDirty(value: boolean): void
       /**
@@ -129,6 +170,8 @@ declare global {
       quitNow(): void
       onMenu(cb: (cmd: string) => void): void
       onThemeChanged(cb: () => void): void
+      /** 笔记库里的 .md 被外部改了 / 增删改名了（主进程 500ms 防抖后推送） */
+      onLibraryChanged(cb: () => void): void
     }
   }
 }

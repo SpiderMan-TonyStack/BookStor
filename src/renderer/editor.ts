@@ -1,4 +1,4 @@
-import { EditorState, EditorSelection, type Extension } from '@codemirror/state'
+import { EditorState, EditorSelection, Compartment, type Extension } from '@codemirror/state'
 import {
   EditorView,
   keymap,
@@ -49,6 +49,14 @@ export interface EditorHandle {
   getDoc(): string
   focus(): void
   destroy(): void
+  /**
+   * 只读开关。
+   *
+   * 给「非 UTF-8 文件」用：那种文件读进来必然是乱码，允许编辑再保存就是把原文
+   * 永久转码写坏，所以打开时就锁住，用户能看、能复制，但敲不进去字。
+   * 用 Compartment 而不是重建 state —— 重建会把撤销历史、选区、滚动位置全丢掉。
+   */
+  setReadOnly(value: boolean): void
 }
 
 export interface EditorCallbacks {
@@ -87,6 +95,11 @@ function arrowFromCursor(forward: boolean) {
 }
 
 export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHandle {
+  // 只读开关走 Compartment：改它不需要重建 state（重建会丢撤销历史与选区）
+  const readOnlyCompartment = new Compartment()
+  /** 当前只读状态。setDoc 重建 state 后要照它补回 Compartment 的值 */
+  let readOnly = false
+
   const extensions: Extension[] = [
     // --- 基础能力（手挑，不用 basicSetup：Typora 没有行号、没有活动行底色）
     highlightSpecialChars(),
@@ -198,6 +211,10 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
     ]),
 
     placeholder('开始写…'),
+
+    // --- 只读（非 UTF-8 文件打开时置 true，见 setReadOnly）
+    //     放在 extensions 里是为了 setDoc 重建 state 后仍能补回当前值
+    readOnlyCompartment.of(EditorState.readOnly.of(false)),
   ]
 
   const view = new EditorView({
@@ -217,6 +234,11 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
       )
       // 相对图片路径要靠笔记所在目录才能变成 file:// 地址，换了笔记就得跟着换
       if (baseDir !== undefined) view.dispatch({ effects: setDocBase.of(baseDir) })
+      // setState 会把 Compartment 里的值重置回默认（false），只读状态必须补回来 ——
+      // 否则翻到下一篇只读文件时它会突然变成可编辑
+      view.dispatch({
+        effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(readOnly)),
+      })
       view.focus()
     },
     getDoc() {
@@ -224,6 +246,12 @@ export function createEditor(parent: HTMLElement, cb: EditorCallbacks): EditorHa
     },
     focus() {
       view.focus()
+    },
+    setReadOnly(value: boolean) {
+      readOnly = value
+      view.dispatch({
+        effects: readOnlyCompartment.reconfigure(EditorState.readOnly.of(value)),
+      })
     },
     destroy() {
       view.destroy()

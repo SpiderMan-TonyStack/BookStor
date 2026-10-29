@@ -12,7 +12,6 @@
 | M3 主题（核心） | `@import` 递归内联、`url()` 重写、选择器映射、热重载 | ✅ |
 | M4 桌面感 | 原生菜单、窗口记忆、上次文件恢复、侧栏可拖宽、图标、单实例、打包 exe | ✅ |
 | M5 大纲 | 侧栏「文件 / 大纲」标签页、标题树、点击跳转（4px 内对齐）、当前章节跟随滚动、**代码块里的 `#` 不算标题** | ✅ |
-| M5 大纲 | 侧栏「文件 / 大纲」标签页、标题树、点击跳转（4px 内对齐）、当前章节跟随滚动、**代码块里的 `#` 不算标题** | ✅ |
 | M5 快捷键设置 | 14 个命令可自定义、录制即生效、冲突检测、单/全部复位；渲染层 capture 接管，**不被 CM6 抢** | ✅ |
 | M5 阅读体验 | 标题 / 代码块折叠（gutter 三角，收起后内容从布局里消失）、专注模式（非当前段落淡出）、打字机模式（光标行居中）、状态栏字数 | ✅ |
 | M5 表格与图 | 光标进表浮出工具条（增删行列 / 三向对齐）、Mermaid 代码块渲染成图 | ✅ |
@@ -28,7 +27,7 @@
 pnpm install
 pnpm start          # 构建 + 启动（开发态）
 pnpm typecheck      # 两端 tsc
-pnpm test           # 纯函数断言（标题识别 / 围栏 / 表格 / 快捷键 / 无损边界）
+pnpm test           # 47 条纯函数断言（标题识别 / 围栏 / 表格 / 快捷键 / 无损边界 / 数据安全 P0）
 pnpm verify         # 245 篇旧笔记逐字节往返校验 + 裂图基线比对
 pnpm pack           # 打包 → release/简牍-<version>-portable.exe（推荐）
 pnpm dist           # 同上，但直接输出到 release/（本机守卫会拦，见下）
@@ -42,9 +41,11 @@ pnpm dist           # 同上，但直接输出到 release/（本机守卫会拦�
 2. **中文输入** — 组字期间不重排、不丢字、光标不跳。
 3. **无损** — 纯文本是唯一真源。渲染层只读叠加，**永不回写美化后的文本**；不认识的语法原样保留；不统一换行符。
 
-`pnpm verify` 就是这条红线的守门人：245 篇旧笔记 `decode → encode` 后必须**逐字节相等**（CRLF/LF、BOM、末尾无换行全藏在这个断言里），且裂图数不超过 94 的已测基线。
+`pnpm verify` 就是这条红线的守门人：245 篇旧笔记 `decode → encode` 后必须**逐字节相等**（CRLF/LF、BOM、末尾无换行全藏在这个断言里），且裂图数不超过 94 的已测基线。非 UTF-8 的篇目**不参与**往返比对（坏字节解成 `�` 再编码回不去，比了必然红），会单独列一区打印——它们在编辑器里是只读的，你得知道有这几篇。
 
-`pnpm test` 守的是另一半。`verify` 只比字节，它看不见"渲染成什么样"——标题该不该认（含列表项里的 `- ## x`）、围栏什么时候闭合、表格怎么切列、空格能不能当快捷键，这些改坏了字节一个不差，只会在界面上错位。所以 `scripts/test-units.mjs` 把踩过的边界逐条钉成断言（23 条，零新增依赖，走 `node:test`）。
+`pnpm test` 守的是另一半。`verify` 只比字节，它看不见"渲染成什么样"——标题该不该认（含列表项里的 `- ## x`）、围栏什么时候闭合、表格怎么切列、空格能不能当快捷键，这些改坏了字节一个不差，只会在界面上错位。所以 `scripts/test-units.mjs` 把踩过的边界逐条钉成断言（**47 条**，零新增依赖，走 `node:test`；其中 8 条是 `writeNote` 的落盘集成测试，用 `os.tmpdir()` 建临时目录跑完即删）。
+
+> 为什么数据安全那几条必须落盘才测得出来：往返校验比的是「我们的解码器 vs 我们的编码器」，两边一起错就永远是绿的。那 8 条比的是另一件事——**面对磁盘上别的程序留下的真实字节，我们有没有动手**。其中最刁的一条是「快路径只认主进程亲自验过的文件」：渲染层送回来的 `expectMtimeMs`/`expectSize` 就是它自己从 `readNote` 拿到的，一个从没被我们读过的 GBK 文件，指纹照样百分之百命中。
 
 ## 架构
 
@@ -68,7 +69,8 @@ src/
     table.ts       表格真渲染（StateField 块装饰；光标进表退回源码）
     table-parse.ts 表格行解析（splitRow / parseAlign / columnAt / joinRow，纯函数、可单独测）
     table-panel.ts 表格面板（光标进表浮出工具条：增删行列 / 对齐）
-    mermaid.ts     ```mermaid 渲染成图（mermaid 库按需动态加载、结果按内容缓存）
+    mermaid.ts     ```mermaid 渲染成图（mermaid 库按需动态加载、结果按内容 + 明暗档缓存）
+    mermaid-export.ts  PDF 导出时把 ```mermaid 换成真图（摘源码 → 渲染 SVG → 按顺序替换）
     markdown-html.ts  Markdown → HTML（PDF 导出用，走编辑器同一个 Lezer parser）
     viewmode.ts    源码模式开关（markers / table / fold / mermaid 四处共用）
     text-stats.ts  字数统计（中文按字、英文按词）
@@ -266,7 +268,10 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 ### Mermaid（`mermaid.ts`）
 
 - **按需动态 import**：库压缩后三兆多，首屏不该背它；文档里真出现 ```mermaid 才加载。
-- **结果按代码内容缓存**：滚动、换光标都会反复要求同一张图，不缓存等于每次重跑一遍布局。
+- **结果按 `(明暗档, 代码内容)` 缓存**：滚动、换光标都会反复要求同一张图，不缓存等于每次重跑一遍布局。
+  键里必须带明暗档 —— `mermaid.render` 把颜色烤进了 `fill`/`stroke` 属性，跨主题复用就是深色底浅色字。
+- **`initialize` 的全局状态集中管**：`applyMermaidTheme()` 记住当前档位、只在档位变了才调。
+  导出时用 `withLightTheme()` 临时切浅色，`finally` 里还原（导出的是白底纸面，图也得浅色）。
 - **异步结果靠 effect 回流**：block 装饰必须由 StateField 提供，而它的 update 是同步的、不能 await；
   渲染完成后 dispatch 一个空 effect，把"可以重算了"这件事推回 state。
 - 光标进块退回源码；点图也能进块 —— `ignoreEvent()` 必须返回 `false`，否则点击被 widget 整个吞掉。
@@ -290,7 +295,11 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 **为什么不直接打印主窗口**：CM6 是虚拟化的，屏幕上只有视口那几十行有 DOM，直接打印会得到大片空白。
 隐藏窗口里放的是静态 HTML，全文都在。
 
-> 已知限制：PDF 里的 ```mermaid 会以**代码块**形式导出（不渲染成图）—— 图只存在于渲染层的缓存里。
+**mermaid 会被换成真图**（`mermaid-export.ts`）：静态 HTML 那条路上没有任何 widget，所以单独再走一遍——
+从 Lezer 树上按顺序摘出所有 ```mermaid 源码，逐个渲染成 SVG，再按**出现顺序**把
+`<pre class="jd-code-block"><code class="language-mermaid">…` 换掉。按顺序而不是按文本匹配，
+是因为同一段源码出现两次时按文本替换会把两处都换成同一张图。渲染失败保留代码块（图和原文都在 PDF 里）。
+颜色用 `withLightTheme()` 临时切浅色档 —— 导出页是白底，深色图很别扭；而 `initialize` 是全局的，不还原会让编辑器里的图也变浅。
 
 ## 已知的坑（都踩过，记下来省时间）
 
@@ -318,25 +327,40 @@ CM6 执行了它的 `deleteLine`，我们的命令根本没跑，还不报错。
 | 光标是纯黑的，和主题没关系 | CM6 默认 `.cm-cursor { border-left: 1.2px solid black }`，深色适配那条是 `&dark .cm-cursor`——只有用过 `EditorView.theme(…, {dark:true})` 才会生成 `.cm-dark` 类。本项目颜色全交给 Typora 主题，`.cm-dark` 永远不存在，所以深色主题下光标一直是黑的（实测 `hasCmDark: false`）。改为 `border-left-color: currentColor` 跟随正文色，且**必须带 `#write` 前缀**（1,1,0）：CM6 的样式是运行时注入到 `<head>` 末尾，同特异性它赢 |
 | ↑/↓ 一按就「冲到选区另一头」 | CM6 的 `cursorByLine` 对**非空选区**直接执行 `rangeEnd(range, forward)`：`↑` 把光标放到选区 from、`↓` 放到 to，**塌陷之后不再移动**。选中一个 20 行的代码块、在底部按一下 `↑`，光标瞬间移到块首，看着就像「直接到顶部」。现在 `editor.ts` 用 `arrowFromCursor()` 提前接管：从 `head`（用户最后一次拖到的位置）起步移动一行。只在「单光标 + 有选区」时接管，其余交回默认实现 |
 | 列表项里的标题也是标题 | 库里 **50 个文件、232 行**写成 `- ## 标题`（多半是从网页复制时被套上列表符号）。原来的标题正则只认行首 `#`，于是这些行既不是标题、也进不了大纲，`##` 还照样显示。现在 `heading.ts` 的 `parseHeading()` 同时认两种写法，行 class / 标记隐藏 / 大纲三处共用，`- ` 和 `##` 一起隐藏。普通标题仍然不允许前导缩进（放宽会把缩进代码块里的 `#` 误判成标题） |
-
 | `KEY_ALIAS` 里的 `' ': 'Space'` 曾永远不生效 | `normalizeKey` 先走 `key.length === 1` 分支，而空格的 length 恰好是 1，别名永远轮不到 → 录出来的 accelerator 是 `CmdOrCtrl+ `（尾部一个空格），Electron 不认，绑定默默失效且无从排查。别名查询必须放在长度判断**之前**（`pnpm test` 的「键名别名」这条就是为它设的） |
-
 | 折叠不能用 CSS 隐藏 | `display: none` 藏掉的行不在 CM6 的高度模型里，滚动/点击/光标会集体偏移。必须用 `Decoration.replace({ block: true })` 从布局里换掉。另外**含表格行的块不能折叠**——表格自己就是一个 block replace，两个 replace 重叠会抛错 |
 | `gutterElement` 量到 `height: 0` 是假象 | 那是 CM6 的 `initialSpacer`（inline style 带 `visibility: hidden; pointer-events: none`），不是真实行标记。真实元素的高度由 CM6 按行量出来（标题 65px、正文 32px 各不同）。三角要用 `display: flex; align-items: center` 居中，靠 `line-height` 会让它偏到行的上三分之一 |
 | toggle 类命令被两条路径各触发一次 | 菜单 accelerator 在主进程注册时，按键先被它吃掉、再走渲染层 → 「专注模式」开一次又关一次，按下去像完全没反应，状态栏还显示「视图：常规」。60ms 去重盖不住（IPC 到达间隔偶尔超过 60ms）。给菜单项加 `registerAccelerator: false`：只显示、不注册 |
-
 | `pnpm dist` 在本机必失败 | electron-builder 打包前会 `emptyDir` 清空 `win-unpacked`，而本机的 safe-delete 是**按文件数**拦批量删除的（>50 个直接 block，报 `SAFE_DELETE_BULK_GUARD_ERROR`）。`pnpm pack` 把输出改到系统临时目录就绕开了 |
 | 打包完的 `app.asar` 锁着删不掉 | 一个 549MB 的临时目录里其余文件都能删，只有 `app.asar` 被外部服务占着（实测等 90 秒、`Directory.Delete`、移动目录全失败）。所以临时目录**不要放在项目里**——`pnpm pack` 用系统 TEMP，不影响项目目录，系统迟早回收 |
-
 | 路径分隔符不统一 → `startsWith` 静默失效 | 配置里 `libraryRoot` 可能是 `D:/a`（正斜杠，被 Git Bash 的路径转换写进去的），而 `lastFile` 是 `D:\a`。`last.startsWith(root)` 直接返回 false，表现是「重启后停在文件树、不打开上次那篇」，**而且不报任何错**。比较前一律走 `normPath()` 统一分隔符和大小写 |
+| 裸 CR 也算进了 CRLF 计数 | 老 Mac 风格的文件整篇只有 `\r`，原来它被记进 `crlf` 分支，于是 `eolStyle='crlf'`、`eolMap=null`，写回时每个 `\r` 变成 `\r\n` —— **字节数凭空翻倍**，git 里显示「全文重写」。裸 CR 现在单独成 `'cr'`（与别的混用时进 `'mixed'` 保留逐处序列）。这类损坏是最阴的一种：往返校验比的是「我们的编码器 vs 我们自己的解码器」，两边一起错就永远绿 |
+| 非 UTF-8 文件读成乱码再写回 = 永久转码 | `Buffer.toString('utf8')` 遇到坏字节静默换成 `�`，不报错。所以「打开 → 自动保存」一条龙就能把 GBK 笔记变成一堆 `�`，且不可逆。判定必须用 `TextDecoder('utf-8', { fatal: true })`，保存路径上**先复检再动手**，非 UTF-8 一律拒绝写盘 |
+| `fs.readFile(p, 'utf8')` 不剥 BOM | Node 不会替你去掉 `\uFEFF`（`JSON.parse` 会为此抛错，正则不会——所以更阴）。同一个库里有 4 篇带 BOM，`scanBrokenImagesOf` 曾直接走 utf8 读，首行紧贴图片语法时会漏判。凡是要按「文件原文」做正则的地方，统一走 `decodeBuffer()` |
+| mermaid 的 SVG 把颜色**烤进属性**里 | `mermaid.render` 产出的是带 `fill`/`stroke` 内联属性的 SVG，主题里写 `.jd-mermaid path { fill: … }` 也压不过它（内联样式优先级最高）。所以换主题后复用缓存就是「深色底 + 浅色字」，而且**改 CSS 救不回来**，只能重渲染。缓存键因此带了明暗档（`d|l` 前缀），切主题时再 `cache.clear()` + 立刻重扫一遍 |
+| `mermaid.initialize` 是**全局**的 | 它改的是库里的默认配置，下一次 `render` 才生效。曾经导出 PDF 时直接 `initialize({theme:'default'})` 图浅色好看了，代价是**编辑器里的图也一起变浅**，且永远回不去（下次打开还是浅色）。现在统一走 `applyMermaidTheme()` 记住当前档位，导出用 `withLightTheme()` 包起来，`finally` 里还原 |
+| `URL(...)` 大写就失效 | CSS 里 `url()` / `URL()` / `Url()` 都合法，但 `decl.value.includes('url(')` 只认小写。症状是主题里某条背景图/字体声明被整段跳过，而报告里连一条警告都不给（连「丢弃」都算不上，压根没进改写流程）。判定一律用 `/url\(/i` |
+| 同一套「隐藏目录」规则写了三份就会漂移 | `listTree`（文件树）、`scanBrokenImages`（全库扫图）、`verify-roundtrip` 的 `walk` 各有一份遍历逻辑。曾经只有 `listTree` 跳「点开头」，于是 `.主题/`、`.obsidian/` 里的 `.md` 也被算进裂图统计——文件树里没有的文件在统计里冒出来。现在统一 `shouldSkip()` + `MAX_DEPTH` + `collectMarkdownFiles()` |
+| 指纹快路径会自己骗自己 | 为了省掉「每次保存都整篇读盘判编码」，用 `(mtime, size)` 指纹命中就跳过。但这俩值**正是渲染层从 `readNote` 拿到的**，一个从没被我们读过的 GBK 文件，它的 mtime/size 当然和刚 stat 到的一致——指纹百分之百命中，第二道防线形同虚设。现在快路径的前提是「主进程自己记账（`verifiedUtf8`）里，这个 path 的这个状态我亲自验过」；只传 `mtime` 不传 `size` 时退回保守行为 |
+| 自己写盘触发的 watcher 会把文件树刷掉 | 自动保存 800ms 一次，每次写盘都触发 `fs.watch`，如果照单全收就要跟着 `listTree` 重画一遍——树的结构根本没变（只是某篇内容变了），但滚动位置和折叠状态全丢了。现在记 `selfSaveAt`，自写后 2 秒内只处理「当前篇变了没」 |
+| `loadConfig` 静默回落像软件坏了 | 一个 `catch { cache = DEFAULT }` 把所有情况吞了：JSON 写坏、权限没了、手改漏逗号，表现都是「文件树空了 / 主题变回内置」，屏幕上**一个字都没有**。现在 `getLastLoadError()` 记下原因，主进程启动打日志、渲染层状态栏也提示。ENOENT 单独放过——首次启动不是错误 |
 
 ## 数据安全怎么做的
 
 - **写盘**：tmp 文件 + `fsync` + rename（同目录，原子）；Windows 上被网盘/杀软占用时重试 6 次。
+- **外部修改检测**：`SaveMeta.expectMtimeMs` 带上「打开/上次保存时看到的 mtime」，主进程在真正写盘**之前**比对磁盘现状，不一致就返回 `conflict` 而不写。渲染层弹确认框（覆盖 / 先不保存），用户点覆盖才带 `force: true` 重试。容差 1ms（网盘与杀软会重写时间戳）。
+  - 为什么必须有：这篇在 Typora 里改过、网盘同步下来一版、或者 git 切了分支，自动保存会**双向静默吞掉**——本地这版盖掉对方的，对方那版也从编辑器里永远消失了。800ms 自动保存让这件事发生得毫无知觉。
+- **不往非 UTF-8 文件里写 UTF-8**：`decodeBuffer` 用 `TextDecoder('utf-8', { fatal: true })` 判合法性，非法时 `validUtf8: false`。主进程 `writeNote` 先读盘复检，非 UTF-8 直接拒绝（`encoding: true`），磁盘一个字节不动；渲染层把编辑器锁成只读（`Compartment` 装 `EditorState.readOnly`，不重建 state，撤销历史与选区都留着），状态栏标「⚠ 非 UTF-8，只读」。
+  - 为什么是拒绝而不是"尽力转换"：GBK/GB18030 文件读进来必然是 `�` 乱码，一旦按 UTF-8 写回，整个文件就被**永久转码**，原来能在 Typora 里正常打开的文件从此全乱，`Ctrl+Z` 也救不回来。宁可让用户看到乱码＋只读提示，也不做这种不可逆的事。
+  - 复检不做成"每次保存都整篇读一遍"：280KB 的笔记每次保存多读一遍盘是纯浪费。用 `(mtime, size)` 指纹命中就跳过——但**指纹只认主进程自己记的账**（`verifiedUtf8` 这张 Map，只有 `readNote` 验过合法、或 `writeNote` 刚写成功时才记账）。渲染层传回来的 `expectMtimeMs`/`expectSize` 是它自己从 `readNote` 拿的，**不能**单独用来证明"这文件合法"：一个从没被我们读过的 GBK，它的 mtime/size 当然和刚 stat 到的一致。只信这两个字段，等于给刚打开的乱码文件开了一条写入通道。
+- **外部改动自动同步**：主进程 `fs.watch` 笔记库（递归、只认笔记后缀、跳过点开头目录、500ms 防抖），发 `library-changed`；渲染层 120ms 再收一道，然后：文件树重画 → 当前篇 `readNote` 比 mtime → **没有未保存改动就自动重载**，有改动则只提示「你有未保存的改动，保存时会问你怎么处理」（绝不自动覆盖，和 `writeNote` 的冲突检测同一套标准）。
+  - 我们自己写盘也会触发这个 watcher，所以记 `selfSaveAt`：自写后 2 秒内只处理"当前篇变了没"，不重画文件树。否则每 800ms 自动保存一次就把树重画一遍，滚动位置全丢，而树的结构根本没变。
 - **崩溃恢复**：打字后 **300ms** 写一份草稿到**独立的 `draft.json`**（比 800ms 的自动保存更早），正常存盘成功后清掉。下次启动若发现草稿，顶部横幅问「恢复 / 丢弃」，**磁盘一个字节都不动**，直到你按 Ctrl+S。
   - 为什么不塞进 `config.json`：草稿是每 300ms 一次的**全量重写**，而配置里躺着窗口尺寸、主题名、lastFile。混在一起等于「写草稿失败会连带丢配置」，反过来改个侧栏宽度也要把整篇正文序列化一遍。两者生命周期不同，必须分文件。
   - 上限按**字节**判（2MB），不按字符——中文一个字 3 字节，按 `.length` 会让实际写入到上限的 3 倍。内容与上次落盘一致时跳过写盘。
 - **关窗拦截**：渲染层把 `dirty` 推给主进程，关窗时若有未保存改动弹三选一（保存并关闭 / 取消 / 放弃改动）。
+  - 「保存并关闭」只在真的写到盘上时才退出：`doSave()` 返回 `boolean`，为 `false` 就留在窗口里。**没保存也关掉**是这条链路上最容易犯的错——点完对话框窗口没了，内容也没了。
+  - 正在写盘的那一轮 `doSave()` 返回 `false`（还没落盘），所以 `save-then-quit` 会等它写完再走一遍，而不是直接放弃。
 - **单实例锁**：多开会让同一文件被两个编辑器互相覆盖。
 - **上次状态**：`lastFile` 记上次打开的文件，重启自动打开；侧栏宽度也能拖拽记住（双击把手恢复 240px）。
 

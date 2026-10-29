@@ -16,12 +16,21 @@
  *   - BOM + CRLF + 末尾无换行（245 篇里 4 篇 BOM、188 篇 CRLF、123 篇末尾无换行）
  *   - 表格行的转义竖线与对齐分隔行
  *   - 快捷键录制的合法性判定（只按修饰键 / 无修饰键 / F 键）
+ *   - 裸 CR 风格、非 UTF-8 判定、mtime 冲突、writeNote 拒绝写坏盘（数据安全 P0）
  *
  * 零新增依赖：node:test + node:assert。直接 import .ts（与 verify 脚本同一条路）。
+ *
+ * 数据安全那组是**异步落盘测试**：用 os.tmpdir() 建临时目录，跑完即删。
+ * 它们守的是「比往返更外面一层」的东西 —— 往返测试比的是我们自己的
+ * decode/encode 是否自洽，两边一起错就永远绿；这几条比的是
+ * 「面对磁盘上真实的别的程序留下的字节，我们有没有动手」。
  */
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { promises as fs } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 // 直接 import .ts 依赖 Node ≥ 22.18 的类型剥离。用动态 import 是为了在低版本
 // 给一句人话，而不是甩一堆 ERR_UNKNOWN_FILE_EXTENSION。
@@ -31,6 +40,7 @@ let tableParse
 let commands
 let lossless
 let markdownHtml
+let files
 try {
   heading = await import('../src/renderer/heading.ts')
   fence = await import('../src/renderer/fence.ts')
@@ -38,6 +48,7 @@ try {
   commands = await import('../src/shared/commands.ts')
   lossless = await import('../src/main/lossless.ts')
   markdownHtml = await import('../src/renderer/markdown-html.ts')
+  files = await import('../src/main/files.ts')
 } catch (err) {
   console.error(
     '✗ 加载 .ts 源文件失败\n' +
@@ -52,8 +63,9 @@ const { parseHeading, headingText } = heading
 const { createFenceState, stepFence } = fence
 const { splitRow, parseAlign, columnAt, joinRow } = tableParse
 const { accelFromKey, prettyKey, sameAccel } = commands
-const { decodeBuffer, encodeText } = lossless
+const { decodeBuffer, encodeText, mtimeConflicts } = lossless
 const { markdownToHtml } = markdownHtml
+const { writeNote, readNote } = files
 
 // ---------------------------------------------------------------- 标题识别
 
@@ -364,6 +376,301 @@ test('lossless: 中文按 UTF-8 三字节计', () => {
   const { decoded, re } = roundtrip(buf)
   assert.equal(decoded.text, '中文\n')
   assert.ok(re.equals(buf))
+})
+
+// ---------------------------------------------------------------- 数据安全（P0）
+
+test('lossless: 裸 CR 单独成风格，往返不翻倍', () => {
+  // 老 Mac 风格：整篇只有 \r。以前它被算进 crlf 计数，于是 eolStyle='crlf'、
+  // eolMap=null，写回时每个 \r 变成 \r\n —— 文件字节数翻倍，等于全文被改写。
+  const buf = Buffer.from('a\rb\rc', 'utf8')
+  const { decoded, re } = roundtrip(buf)
+  assert.equal(decoded.eolStyle, 'cr', '裸 CR 必须是独立风格，不能混进 crlf')
+  assert.equal(decoded.text, 'a\nb\nc')
+  assert.ok(re.equals(buf), '往返必须逐字节相等（这正是以前坏掉的地方）')
+  assert.equal(re.length, buf.length, '长度不能变，翻倍就是损坏')
+})
+
+test('lossless: CR 与 LF 混用时仍是 mixed 且逐处还原', () => {
+  const buf = Buffer.from('a\rb\nc\r\nd', 'utf8')
+  const { decoded, re } = roundtrip(buf)
+  assert.equal(decoded.eolStyle, 'mixed')
+  assert.deepEqual(decoded.eolMap, ['\r', '\n', '\r\n'])
+  assert.ok(re.equals(buf))
+})
+
+test('lossless: 合法 UTF-8 标记为 validUtf8', () => {
+  assert.equal(decodeBuffer(Buffer.from('中文 abc\n', 'utf8')).validUtf8, true)
+  // 空文件与只有 BOM 的文件都算合法
+  assert.equal(decodeBuffer(Buffer.alloc(0)).validUtf8, true)
+  assert.equal(decodeBuffer(Buffer.from([0xef, 0xbb, 0xbf])).validUtf8, true)
+})
+
+test('lossless: 非法 UTF-8 被识别出来（GBK 中文的典型字节）', () => {
+  // 「中文」的 GBK 编码是 D6 D0 CE C4 —— D6 后面跟 D0 不是合法 UTF-8 续字节
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
+  const decoded = decodeBuffer(gbk)
+  assert.equal(decoded.validUtf8, false, 'GBK 字节必须被判成非 UTF-8，否则会被静默转码写坏')
+  // 仍然给一份能显示的文本（坏字节变 U+FFFD），因为用户至少要看一眼
+  assert.ok(decoded.text.includes('\uFFFD'))
+})
+
+test('lossless: 截断的多字节序列也算非法', () => {
+  // 「中」是 E4 B8 AD，只留前两个字节 = 半个汉字
+  assert.equal(decodeBuffer(Buffer.from([0xe4, 0xb8])).validUtf8, false)
+})
+
+test('lossless: BOM 不影响 UTF-8 合法性判定', () => {
+  const ok = decodeBuffer(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('中', 'utf8')]))
+  assert.equal(ok.validUtf8, true)
+  assert.equal(ok.bom, true)
+  assert.equal(ok.text, '中')
+  // BOM + 非法字节
+  const bad = decodeBuffer(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from([0xd6, 0xd0])]))
+  assert.equal(bad.validUtf8, false)
+  assert.equal(bad.bom, true)
+})
+
+test('mtime: 没带 expect 就不报冲突', () => {
+  // 新建笔记 / 老调用都走这条，不能被一个探测不到的东西拦住
+  assert.equal(mtimeConflicts(1000, undefined), false)
+  assert.equal(mtimeConflicts(1000, NaN), false)
+})
+
+test('mtime: 几毫秒内的抖动不算冲突', () => {
+  // 网盘客户端、杀软扫过之后会「补」时间戳；部分文件系统只存到秒
+  assert.equal(mtimeConflicts(1000, 1000), false)
+  assert.equal(mtimeConflicts(1001, 1000), false)
+  assert.equal(mtimeConflicts(1000, 1001), false)
+})
+
+test('mtime: 真被改过就报冲突', () => {
+  assert.equal(mtimeConflicts(5000, 1000), true)
+  assert.equal(mtimeConflicts(1000, 5000), true)
+})
+
+test('writeNote: 磁盘被外部改过时拒绝写盘（不静默覆盖）', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'note.md')
+  await fs.writeFile(file, '原内容\n', 'utf8')
+
+  // 记下「打开时」的 mtime，然后模拟别的程序改了它
+  const opened = (await fs.stat(file)).mtimeMs
+  await fs.writeFile(file, '别人改的内容\n', 'utf8')
+  await fs.utimes(file, new Date(), new Date(Date.now() + 5000))
+
+  const res = await writeNote(file, '我写的内容\n', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: true,
+    expectMtimeMs: opened,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.conflict, true)
+  // 关键断言：磁盘上还是别人的内容，我们的写盘必须先检查后动手
+  assert.equal(await fs.readFile(file, 'utf8'), '别人改的内容\n')
+
+  // force=true 时用户已经确认过，允许覆盖
+  const forced = await writeNote(file, '我写的内容\n', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: true,
+    expectMtimeMs: opened,
+    force: true,
+  })
+  assert.equal(forced.ok, true)
+  assert.equal(await fs.readFile(file, 'utf8'), '我写的内容\n')
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: 非 UTF-8 文件拒绝写盘（否则全文被转码写坏）', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'gbk.md')
+  // 「中文」的 GBK 字节
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0x0a])
+  await fs.writeFile(file, gbk)
+
+  const res = await writeNote(file, '中文\n', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: true,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.encoding, true)
+  // 关键断言：原文件一个字节都没动
+  assert.ok((await fs.readFile(file)).equals(gbk))
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: 正常保存后 mtime 会更新，且字节完全一致', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'ok.md')
+  const original = Buffer.from('\uFEFFa\r\nb', 'utf8')
+  await fs.writeFile(file, original)
+
+  const doc = decodeBuffer(await fs.readFile(file))
+  const before = (await fs.stat(file)).mtimeMs
+  const res = await writeNote(file, doc.text, {
+    eolStyle: doc.eolStyle,
+    eolMap: doc.eolMap,
+    bom: doc.bom,
+    endsWithNewline: doc.endsWithNewline,
+    expectMtimeMs: before,
+  })
+  assert.equal(res.ok, true)
+  assert.ok((await fs.readFile(file)).equals(original), '内容没改时重写必须逐字节相等')
+  // 返回的 mtime 要能直接喂给下一次保存（渲染层就是这么用的）
+  assert.equal(typeof res.mtimeMs, 'number')
+  assert.ok(res.mtimeMs > 0)
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: 文件不存在时直接创建（新建笔记不是错误）', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  // 连子目录都不存在：writeNote 自己 mkdir -p
+  const file = path.join(dir, '新目录', '新笔记.md')
+
+  const res = await writeNote(file, '第一行\n第二行\n', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: true,
+    // 新建时磁盘上没有文件，mtime 检查必须放行（statOrNull 返回 null）
+    expectMtimeMs: 123,
+  })
+  assert.equal(res.ok, true)
+  assert.equal(await fs.readFile(file, 'utf8'), '第一行\n第二行\n')
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: force 不能绕过编码检查', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'gbk.md')
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
+  await fs.writeFile(file, gbk)
+
+  // force 的语义只是「我知道磁盘被改过，覆盖它」，
+  // 不是「我知道这不是 UTF-8，把它转码」—— 后者不可逆，永远不放行
+  const res = await writeNote(file, '中文', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: false,
+    force: true,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.encoding, true)
+  assert.ok((await fs.readFile(file)).equals(gbk), 'force 也不能动非 UTF-8 文件')
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: 快路径只认「主进程亲自验过」的文件，不信渲染层送来的指纹', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'fp.md')
+
+  // 1) 合法文件：readNote 会记账 → 之后的保存可以走快路径
+  await fs.writeFile(file, Buffer.from('正常内容\n', 'utf8'))
+  const doc = await readNote(file)
+  assert.equal(doc.validUtf8, true)
+  const r1 = await writeNote(file, '改过的内容\n', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: true,
+    expectMtimeMs: doc.mtimeMs,
+    expectSize: doc.size,
+  })
+  assert.equal(r1.ok, true)
+
+  // 2) GBK 文件：渲染层送来的指纹就是它自己的 mtime/size（readNote 原样返回的），
+  //    指纹百分之百命中。但主进程从没验过它是合法 UTF-8 —— 必须照样拒绝。
+  //    这正是「只按指纹跳过读盘」会漏掉的洞：刚打开的乱码文件一字未动，
+  //    它的 mtime/size 当然和刚 stat 到的一致。
+  const gbkFile = path.join(dir, 'gbk.md')
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
+  await fs.writeFile(gbkFile, gbk)
+  const gbkDoc = await readNote(gbkFile)
+  assert.equal(gbkDoc.validUtf8, false)
+  const r2 = await writeNote(gbkFile, '中文', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: false,
+    // 完全真实的指纹 —— 不是故意造错
+    expectMtimeMs: gbkDoc.mtimeMs,
+    expectSize: gbkDoc.size,
+  })
+  assert.equal(r2.ok, false, '指纹命中也不能放过没验过的 GBK')
+  assert.equal(r2.encoding, true)
+  assert.ok((await fs.readFile(gbkFile)).equals(gbk), '原字节不能动')
+
+  // 3) 从没被 readNote 碰过的 GBK（比如直接构造出来就存），同样拒绝
+  const coldFile = path.join(dir, 'cold.md')
+  await fs.writeFile(coldFile, gbk)
+  const st3 = await fs.stat(coldFile)
+  const r3 = await writeNote(coldFile, '中文', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: false,
+    expectMtimeMs: st3.mtimeMs,
+    expectSize: st3.size,
+  })
+  assert.equal(r3.ok, false)
+  assert.equal(r3.encoding, true)
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: 只传 mtime 不传 size 时退回「每次都复检」', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'gbk.md')
+  const gbk = Buffer.from([0xd6, 0xd0, 0xce, 0xc4])
+  await fs.writeFile(file, gbk)
+  const st = await fs.stat(file)
+
+  // 没有 expectSize → 无法证明"文件没被动过" → 必须读盘（保守行为）
+  const res = await writeNote(file, '中文', {
+    eolStyle: 'lf',
+    eolMap: null,
+    bom: false,
+    endsWithNewline: false,
+    expectMtimeMs: st.mtimeMs,
+  })
+  assert.equal(res.ok, false)
+  assert.equal(res.encoding, true)
+
+  await fs.rm(dir, { recursive: true, force: true })
+})
+
+test('writeNote: 整篇裸 CR 原样写回（不会翻倍成 CRLF）', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'jd-p0-'))
+  const file = path.join(dir, 'oldmac.md')
+  const original = Buffer.from('a\rb\rc', 'utf8')
+  await fs.writeFile(file, original)
+
+  const doc = decodeBuffer(await fs.readFile(file))
+  assert.equal(doc.eolStyle, 'cr')
+  const res = await writeNote(file, doc.text, {
+    eolStyle: doc.eolStyle,
+    eolMap: doc.eolMap,
+    bom: doc.bom,
+    endsWithNewline: doc.endsWithNewline,
+  })
+  assert.equal(res.ok, true)
+  const after = await fs.readFile(file)
+  assert.ok(after.equals(original), 'CR 写回 CR —— 翻倍成 CRLF 就是数据损坏')
+  assert.equal(after.length, original.length)
+
+  await fs.rm(dir, { recursive: true, force: true })
 })
 
 // ---------------------------------------------------------------- HTML 导出（PDF 用）

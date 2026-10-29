@@ -29,6 +29,8 @@ contextBridge.exposeInMainWorld('api', {
 
   getSidebarWidth: () => ipcRenderer.invoke('app:getSidebarWidth'),
   saveSidebarWidth: (w: number) => ipcRenderer.invoke('app:setSidebarWidth', w),
+  getAutosaveMs: () => ipcRenderer.invoke('app:getAutosaveMs'),
+  getConfigError: () => ipcRenderer.invoke('app:getConfigError'),
 
   setDirty: (value: boolean) => ipcRenderer.send('app:dirty', value),
   setTitleBarTheme: (mode: 'dark' | 'light') => ipcRenderer.send('app:titlebar-theme', mode),
@@ -43,5 +45,9 @@ contextBridge.exposeInMainWorld('api', {
   },
   onThemeChanged: (cb: () => void) => {
     ipcRenderer.on('theme-changed', () => cb())
+  },
+  /** 笔记库里的 .md 被外部改了/增删改名了（500ms 防抖后推送） */
+  onLibraryChanged: (cb: () => void) => {
+    ipcRenderer.on('library-changed', () => cb())
   },
 })

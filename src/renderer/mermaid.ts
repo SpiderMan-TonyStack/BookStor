@@ -33,13 +33,21 @@ interface MermaidBlock {
   code: string
 }
 
-/** 渲染成功的 svg / 失败的占位，都以代码内容为键 */
+/**
+ * 渲染缓存。
+ *
+ * 键里**必须带明暗档**（`d|code` / `l|code`）：`mermaid.render` 出来的 SVG
+ * 把颜色烤进了 `fill` / `stroke` 属性里，换主题后重新取用旧图就是深色底上的
+ * 浅色字（或反过来），改 CSS 也救不回来。之前只按代码内容做键，
+ * 症状是「切主题后图还是老配色，必须重开笔记才好」。
+ */
 const cache = new Map<string, string>()
 const inFlight = new Set<string>()
 let uid = 0
 
-/** 已经 initialize 过的主题档（mermaid.initialize 是全局的，重复调没必要） */
-const initializedThemes = new Set<string>()
+function cacheKey(code: string, dark: boolean): string {
+  return `${dark ? 'd' : 'l'}|${code}`
+}
 
 /** 渲染完成 → 通知 StateField 重算装饰 */
 const mermaidRendered = StateEffect.define<null>()
@@ -81,22 +89,56 @@ function prefersDarkTheme(): boolean {
   return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5
 }
 
+/** 当前 mermaid 全局配置处在哪一档（null = 还没 initialize 过） */
+let activeTheme: boolean | null = null
+
+/**
+ * 把全局 mermaid 配置切到指定明暗档。
+ *
+ * `mermaid.initialize` 是**全局**的 —— 改的是库里的默认配置，下一次 `render`
+ * 才用新配置。所以：
+ *   - 切之前先看是不是已经在目标档，避免每次都重设（重复设没坏处但没必要）；
+ *   - 切过之后 `activeTheme` 必须跟着更新，否则「以为还在深色、其实已经切浅了」。
+ * 已渲染的 SVG 不会因为这次调用而变（颜色烤在属性里），要换配色只能重渲染 ——
+ * 所以缓存键带了明暗档（见 cacheKey）。
+ */
+function applyMermaidTheme(
+  mermaid: { initialize: (c: import('mermaid').MermaidConfig) => void },
+  dark: boolean
+): void {
+  if (activeTheme === dark) return
+  const config: import('mermaid').MermaidConfig = {
+    startOnLoad: false,
+    // strict：不执行图里可能夹带的脚本/事件属性，纯本地文档也该守住这条
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default',
+    fontFamily: 'inherit',
+  }
+  mermaid.initialize(config)
+  activeTheme = dark
+}
+
+/** 给导出用：临时切到浅色渲染，完了切回来（否则导出一次 PDF 会把编辑器里的图染白） */
+export async function withLightTheme<T>(fn: () => Promise<T>): Promise<T> {
+  const mod = await import('mermaid')
+  const mermaid = mod.default
+  const prev = activeTheme
+  applyMermaidTheme(mermaid, false)
+  try {
+    return await fn()
+  } finally {
+    // prev 为 null 表示之前没初始化过，那就恢复成"未初始化"状态也没意义 ——
+    // 直接用编辑器当前的明暗档恢复，比 null 更接近用户看到的
+    applyMermaidTheme(mermaid, prev ?? prefersDarkTheme())
+  }
+}
+
 async function renderSvg(code: string): Promise<string> {
   try {
     const mod = await import('mermaid')
     const mermaid = mod.default
     const dark = prefersDarkTheme()
-    const key = dark ? 'dark' : 'light'
-    if (!initializedThemes.has(key)) {
-      mermaid.initialize({
-        startOnLoad: false,
-        // strict：不执行图里可能夹带的脚本/事件属性，纯本地文档也该守住这条
-        securityLevel: 'strict',
-        theme: dark ? 'dark' : 'default',
-        fontFamily: 'inherit',
-      })
-      initializedThemes.add(key)
-    }
+    applyMermaidTheme(mermaid, dark)
     const { svg } = await mermaid.render(`jd-mermaid-${++uid}`, code)
     return svg
   } catch (err) {
@@ -150,13 +192,14 @@ class MermaidWidget extends WidgetType {
 function build(state: EditorState): DecorationSet {
   if (isSourceMode(state)) return RangeSet.empty
 
+  const dark = prefersDarkTheme()
   const sel = state.selection
   const items = []
   for (const b of findMermaidBlocks(state.doc)) {
     // 光标进块就退回源码，否则没法改
     const touched = sel.ranges.some((r) => r.to >= b.from && r.from <= b.to)
     if (touched) continue
-    const svg = cache.get(b.code)
+    const svg = cache.get(cacheKey(b.code, dark))
     if (!svg) continue
     items.push(
       Decoration.replace({
@@ -186,14 +229,17 @@ const mermaidDecoField = StateField.define<DecorationSet>({
 /** 扫描并渲染文档里所有没缓存的 mermaid 块（串行，mermaid.render 并发会互相干扰） */
 async function scanAndRender(view: EditorView): Promise<void> {
   const blocks = findMermaidBlocks(view.state.doc)
+  const dark = prefersDarkTheme()
   let changed = false
 
   for (const b of blocks) {
-    if (cache.has(b.code) || inFlight.has(b.code)) continue
-    inFlight.add(b.code)
+    // 缓存键带明暗档：换主题后旧图不会被当成"已经有了"而跳过重渲染
+    const key = cacheKey(b.code, dark)
+    if (cache.has(key) || inFlight.has(key)) continue
+    inFlight.add(key)
     const svg = await renderSvg(b.code)
-    inFlight.delete(b.code)
-    cache.set(b.code, svg)
+    inFlight.delete(key)
+    cache.set(key, svg)
     changed = true
   }
 
@@ -224,5 +270,22 @@ const mermaidScanPlugin = ViewPlugin.fromClass(
     }
   }
 )
+
+/**
+ * 主题换了之后让所有图重渲染。
+ *
+ * 缓存的 SVG 把颜色烤进了 `fill` / `stroke`，主题的 `.jd-mermaid` 规则改不了
+ * 图内部，所以必须整批丢掉重画。这个函数做两件事：
+ *   1. 清缓存（否则 scanAndRender 会认为"已经有了"而跳过）
+ *   2. 拿到 view 就立刻重新扫一遍（不等用户打字触发那 500ms 防抖）
+ *
+ * 只重画装饰，不动文档、不动选区 —— 滚动位置不会跳。
+ */
+export function invalidateMermaidCache(view?: EditorView): void {
+  cache.clear()
+  if (view && view.dom.isConnected) {
+    void scanAndRender(view)
+  }
+}
 
 export const mermaidExtensions = [mermaidDecoField, mermaidScanPlugin]

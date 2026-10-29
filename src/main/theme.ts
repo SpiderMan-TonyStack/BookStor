@@ -95,36 +95,6 @@ function stripSourceviewPrefix(sel: string): string {
   return s
 }
 
-/** 这些标签留着（要么 CM6 里真有，要么必须作用在真 body/html 上） */
-const KEEP_TAGS = new Set([
-  'html',
-  'body',
-  'div',
-  'span',
-  'a',
-  'code',
-  'kbd',
-  'strong',
-  'em',
-  'sub',
-  'sup',
-  'mark',
-  'svg',
-  'path',
-  'g',
-  'use',
-  'br',
-  'input',
-  'del',
-  'ins',
-  'i',
-  'b',
-  'u',
-  's',
-  'small',
-  'label',
-])
-
 // ------------------------------------------------------------------ 默认映射（单一真相源）
 
 /**
@@ -251,7 +221,10 @@ interface UrlCtx {
  */
 function rewriteUrls(root: Root, ctx: UrlCtx): void {
   root.walkDecls((decl: Declaration) => {
-    if (!decl.value.includes('url(')) return
+    // 大小写不敏感地找 `url(`：CSS 里 `URL(...)`、`Url(...)` 都合法，
+    // 之前这里是 `decl.value.includes('url(')`，大写写法整条声明被跳过 ——
+    // 表现为「这张图的背景色/这个字体突然不生效」，而报告里连一条警告都没有。
+    if (!/url\(/i.test(decl.value)) return
 
     const file = decl.source?.input.file
     const dir = file ? path.dirname(file) : ''
