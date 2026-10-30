@@ -36,6 +36,15 @@ let payload: ThemePayload | null = null
  */
 export const BUILTIN_DARK = 'builtin-dark'
 
+/**
+ * 主题每次注入/切换样式后派发的事件名。
+ * 主进程翻译好的 CSS 写进 <head> 的 <style>，而 CM6 只观察编辑器**内部** DOM，
+ * 不会因 <head> 里的 <style> 变化而自动重测 —— 结果高度表停在旧样式上，
+ * 用 posAtCoords 反查点击位置会落到错行（"第一次点击光标偏"就是这个）。
+ * main.ts 监听此事件，在下一帧强制重新测量。
+ */
+export const THEME_APPLIED_EVENT = 'jd-theme-applied'
+
 function ensureStyle(id: string, css = ''): HTMLStyleElement {
   let el = document.getElementById(id) as HTMLStyleElement | null
   if (!el) {
@@ -104,6 +113,7 @@ export async function applyTheme(name: string): Promise<ThemePayload | null> {
       delete document.documentElement.dataset['builtin']
     }
     syncTitleBarTheme()
+    window.dispatchEvent(new Event(THEME_APPLIED_EVENT))
     return null
   }
 
@@ -116,6 +126,7 @@ export async function applyTheme(name: string): Promise<ThemePayload | null> {
   // 把数量挂到 html 上，排查「字体没生效」时能立刻区分「没声明」和「路径错」。
   document.documentElement.dataset.themeFonts = String(result.report.fontFaces)
   syncTitleBarTheme()
+  window.dispatchEvent(new Event(THEME_APPLIED_EVENT))
   return result
 }
 

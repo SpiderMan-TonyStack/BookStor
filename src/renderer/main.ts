@@ -7,6 +7,7 @@ import {
   currentThemeReport,
   currentThemeCss,
   BUILTIN_DARK,
+  THEME_APPLIED_EVENT,
 } from './theme.js'
 import { computeOutline, renderOutline, highlightOutline, jumpTo, type OutlineItem } from './outline.js'
 import { openSettings } from './settings.js'
@@ -753,6 +754,16 @@ async function loadThemes(selected?: string): Promise<void> {
   }
 }
 
+/**
+ * 主题（内置档 / 运行时切换 / 文件热重载）每次注入或切换样式后，CM6 的高度表必须重测：
+ * 主题改的是 <head> 里的 <style>，CM6 只观察编辑器内部 DOM，不会自动重测，
+ * 于是用旧行高反查点击位置会落到错行（"第一次点击其他行光标偏"就是这个）。
+ * applyTheme 在每次注入后派发 THEME_APPLIED_EVENT，这里统一在下一帧强制重新测量。
+ */
+window.addEventListener(THEME_APPLIED_EVENT, () => {
+  editor?.view?.requestMeasure()
+})
+
 /** 主题切换：翻译 → 注入 → 状态栏报账 */
 async function switchTheme(name: string): Promise<void> {
   if (!name || name === BUILTIN_DARK) {
@@ -1103,6 +1114,10 @@ void (async () => {
   }
   const saved = await window.api.getCurrentTheme()
   await loadThemes(saved)
+  // 先注入主题，再打开笔记：否则 setDoc 用兜底样式测量，主题异步注入后行高变了
+  // 却没触发 CM6 重测，第一次点击光标会落到错行（见 THEME_APPLIED_EVENT 监听器注释）。
+  // 提前之后，初始笔记直接在正确主题下测量，连一闪而过的错位都不会有。
+  if (elTheme.value) await switchTheme(elTheme.value)
   const root = await window.api.getLibrary()
   if (root) {
     await loadLibrary(root)
@@ -1122,8 +1137,6 @@ void (async () => {
   } else {
     setMetaStatus('未打开笔记库')
   }
-  // 重启后恢复上次的主题（默认就用实测定下的 dyzj-dark.css）
-  if (elTheme.value) await switchTheme(elTheme.value)
   // 启动期的配置错误放到**最后**说：它是唯一一句「为什么文件树空了」的解释，
   // 一旦被主题报账盖掉，用户就只剩困惑。放在这里才是屏幕上真能读到的那一句。
   if (startupError) setMetaStatus(`⚠ ${startupError}`)
