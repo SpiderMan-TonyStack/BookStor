@@ -208,11 +208,17 @@ body {
 
 /* ---------------------------------------------------------------- 代码 */
 
-/* 行内代码：Darcula 里行内代码没有背景，这里给一档很浅的底以便和正文区分 */
+/* 行内代码：Darcula 里行内代码没有背景，这里给一档很浅的底以便和正文区分。
+ *
+ * 字色**不能**照抄 Darcula 的编辑器前景色 #a9b7c6 —— 那是给整屏代码用的，
+ * 而这里的正文已经提到 #c3cad3，于是行内代码反而比正文暗一档，加上等宽字体
+ * 笔画更细，一整列代码（比如表格第一列）看着就发灰、发浅。
+ * 行内代码的亮度应当**不低于正文**，这里取比正文再亮一点点的冷灰，既找回
+ * 清晰度，又和中文正文留出可辨认的色偏。 */
 #write code {
   font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
   font-size: 0.9em;
-  color: #a9b7c6;
+  color: #cdd7e3;
   background: var(--inline-code-bg);
   padding: 0.12em 0.36em;
   border-radius: 3px;
