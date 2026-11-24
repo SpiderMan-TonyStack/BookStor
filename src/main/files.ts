@@ -8,6 +8,9 @@ import type { FileNode, NoteDoc, SaveResult, BrokenImage, SaveMeta } from '../sh
 // 写 `./lossless.js` 在磁盘上找不到对应文件，`pnpm test` 会 ERR_MODULE_NOT_FOUND。
 // electron-vite 与本项目 tsconfig（allowImportingTsExtensions + noEmit）都认显式 .ts。
 import { atomicWrite, decodeBuffer, encodeText, mtimeConflicts } from './lossless.ts'
+// 同上：本文件会被 test-units.mjs 直接 import，内部引用一律写实扩展名
+import { cleanImageTarget } from '../shared/image-path.ts'
+import { applyImageTemplate, IMAGE_TEMPLATE_DEFAULT } from '../shared/prefs.ts'
 
 /**
  * 非点开头的黑名单（策划案 §5.8）。
@@ -33,6 +36,35 @@ function sortNodes(a: FileNode, b: FileNode): number {
   return a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
 }
 
+/**
+ * 只列一层（文件树懒加载用）。
+ *
+ * 文件树默认全部收起，收起时子节点根本没有 DOM，也就没必要在启动时把整棵树扫一遍。
+ * 展开某个目录再来要它这一层的孩子 —— 一次 `readdir` 的量级是毫秒级，
+ * 而全量 `listTree` 在 245 篇的库上要 60ms 左右，库越大越久。
+ *
+ * `children` 故意不填：`undefined` 表示"还没读过"，与"读过但是空的"（`[]`）区分开，
+ * 文件树据此决定要不要发一次请求。
+ */
+export async function listDir(dir: string): Promise<FileNode[]> {
+  let entries: import('node:fs').Dirent[]
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+  const nodes: FileNode[] = []
+  for (const e of entries) {
+    if (shouldSkip(e.name)) continue
+    const full = path.join(dir, e.name)
+    if (e.isDirectory()) nodes.push({ name: e.name, path: full, isDir: true })
+    else if (e.isFile() && /\.(md|markdown|txt)$/i.test(e.name)) {
+      nodes.push({ name: e.name, path: full, isDir: false })
+    }
+  }
+  return nodes.sort(sortNodes)
+}
+
 export async function listTree(root: string): Promise<FileNode[]> {
   async function walk(dir: string, depth: number): Promise<FileNode[]> {
     if (depth > MAX_DEPTH) return []
@@ -43,16 +75,27 @@ export async function listTree(root: string): Promise<FileNode[]> {
       return []
     }
     const nodes: FileNode[] = []
+    // 子目录并发扫描：原来是在 for 循环里 `await walk(...)`，一个目录一个目录排队，
+    // 深度越大越明显（每个 await 之间都白等一次事件循环）。这里先发出全部请求再一起等，
+    // 顺序由后面的 sort 保证，与串行版本结果完全一致。
+    const pending: Promise<void>[] = []
     for (const e of entries) {
       // 点开头的一律不入树：隐藏目录、附件目录、.gitignore 之类都不该出现在文件树里
       if (shouldSkip(e.name)) continue
       const full = path.join(dir, e.name)
       if (e.isDirectory()) {
-        nodes.push({ name: e.name, path: full, isDir: true, children: await walk(full, depth + 1) })
+        const node: FileNode = { name: e.name, path: full, isDir: true, children: [] }
+        nodes.push(node)
+        pending.push(
+          walk(full, depth + 1).then((kids) => {
+            node.children = kids
+          })
+        )
       } else if (e.isFile() && /\.(md|markdown|txt)$/i.test(e.name)) {
         nodes.push({ name: e.name, path: full, isDir: false })
       }
     }
+    if (pending.length > 0) await Promise.all(pending)
     return nodes.sort(sortNodes)
   }
   return walk(root, 0)
@@ -240,13 +283,65 @@ async function statOrNull(p: string): Promise<{ mtimeMs: number; size: number } 
   }
 }
 
+/** 图片落盘参数（由主进程从 prefs 读出来传进来，files.ts 自己不碰 electron） */
+export interface ImageSaveOptions {
+  /** 目录模板，支持 `${filename}`；相对路径按笔记所在目录解析 */
+  template: string
+  /** 引用是否加 `./` 前缀 */
+  dot: boolean
+}
+
+const IMAGE_DEFAULTS: ImageSaveOptions = { template: IMAGE_TEMPLATE_DEFAULT, dot: true }
+
 /**
- * 图片落盘：完全复刻 Typora 约定 ./.${笔记名}.assets/ 与文件名风格
- *   image-<yyyyMMddHHmmss>-<3位随机>.png
+ * 算出 markdown 里该写的图片路径（纯函数，可单测）。
+ *
+ * `absolute` 表示**模板本身是绝对路径**（不是"解析后的目录恰好是绝对路径" ——
+ * 相对模板 resolve 之后也是绝对路径，用后者判断会把所有图片都写成绝对路径）。
+ *
+ * 三种情况：
+ *   - 模板是绝对路径 → 返回绝对路径（正斜杠）。本机的图片库在别的盘时用这种；
+ *   - 模板在笔记目录内 → 返回相对路径；`dot` 为真时补 `./`（Typora 的写法，
+ *     在 Typora / Obsidian 之间迁移都不会被认成协议头）；
+ *   - 已经以 `./` 或 `../` 开头 → 原样，不再叠一层 `./`。
+ *
+ * 一律输出正斜杠：markdown 里的反斜杠是转义符，`assets\a.png` 会被读成
+ * 「assets + 转义 a」。
  */
-export async function saveImage(notePath: string, base64: string, ext: string): Promise<string> {
+export function imageMarkdownPath(
+  noteDir: string,
+  dir: string,
+  fileName: string,
+  dot: boolean,
+  absolute = false
+): string {
+  const abs = path.join(dir, fileName)
+  if (absolute) return abs.replace(/\\/g, '/')
+  const rel = path.relative(noteDir, abs).replace(/\\/g, '/')
+  if (!dot) return rel
+  if (rel.startsWith('./') || rel.startsWith('../')) return rel
+  return `./${rel}`
+}
+
+/**
+ * 图片落盘：默认仍是 Typora 约定 `./.${笔记名}.assets/`，文件名风格
+ *   image-<yyyyMMddHHmmss>-<2字节随机>.png
+ *
+ * 目录和 `./` 前缀从偏好设置读（见 `shared/prefs.ts` 的 imageDirTemplate）。
+ * 参数**由调用方传**而不是这里 `import config`：config 依赖 electron，
+ * 一旦引进来，`scripts/test-units.mjs` 就再也 import 不了本文件。
+ */
+export async function saveImage(
+  notePath: string,
+  base64: string,
+  ext: string,
+  options: ImageSaveOptions = IMAGE_DEFAULTS
+): Promise<string> {
+  const noteDir = path.dirname(notePath)
   const noteName = path.basename(notePath, path.extname(notePath))
-  const dir = path.join(path.dirname(notePath), `.${noteName}.assets`)
+  const expanded = applyImageTemplate(options.template, noteName)
+  const templateAbsolute = path.isAbsolute(expanded)
+  const dir = templateAbsolute ? path.normalize(expanded) : path.resolve(noteDir, expanded)
   await fs.mkdir(dir, { recursive: true })
 
   const cleanExt = ext.replace(/^\./, '').toLowerCase() || 'png'
@@ -263,8 +358,7 @@ export async function saveImage(notePath: string, base64: string, ext: string): 
   }
 
   await fs.writeFile(path.join(dir, fileName), Buffer.from(base64, 'base64'))
-  // 返回 markdown 里该写的相对路径（正斜杠，与 Typora 一致）
-  return `./.${noteName}.assets/${fileName}`
+  return imageMarkdownPath(noteDir, dir, fileName, options.dot, templateAbsolute)
 }
 
 async function exists(p: string): Promise<boolean> {
@@ -285,11 +379,8 @@ const IMG_RE = /!\[[^\]]*\]\(([^)]*)\)/g
 function extractImageTargets(text: string): string[] {
   const out: string[] = []
   for (const m of text.matchAll(IMG_RE)) {
-    let inner = (m[1] ?? '').trim()
+    const inner = cleanImageTarget(m[1] ?? '')
     if (!inner) continue
-    const titleMatch = inner.match(/^(.+?)\s+("[^"]*"|'[^']*'|\([^)]*\))$/)
-    if (titleMatch?.[1]) inner = titleMatch[1].trim()
-    if (inner.startsWith('<') && inner.endsWith('>')) inner = inner.slice(1, -1)
     out.push(inner)
   }
   return out
@@ -335,4 +426,204 @@ export async function scanBrokenImages(root: string): Promise<BrokenImage[]> {
     }
   }
   return all
+}
+
+// ------------------------------------------------------------------ 文件树右键操作（4.8.0）
+
+/**
+ * 名字里不允许出现的字符。
+ *
+ * 按 **Windows 的规则**收（`\ / : * ? " < > |` 加控制字符），跨平台都够用 ——
+ * 反过来只按 POSIX 收的话，在 Windows 上会创建出 `a:b.md` 这种删不掉的怪文件。
+ */
+const BAD_NAME = /[\\/:*?"<>|\u0000-\u001f]/
+
+/** 新建 / 重命名的名字校验结果 */
+export type NameCheck = { ok: true; name: string } | { ok: false; error: string }
+
+/**
+ * 校验用户输入的名字。
+ *
+ * 点开头的名字**直接拒**：`shouldSkip()` 会把这类文件从文件树里隐藏，
+ * 允许创建的话就是「建完看不见、还得去资源管理器删」。
+ */
+export function checkEntryName(raw: string): NameCheck {
+  const name = raw.trim()
+  if (!name) return { ok: false, error: '名字不能为空' }
+  if (name === '.' || name === '..') return { ok: false, error: '不能用 . 或 .. 作名字' }
+  if (BAD_NAME.test(name)) return { ok: false, error: '名字里不能包含 \\ / : * ? " < > | 这些字符' }
+  if (name.startsWith('.')) return { ok: false, error: '名字不能以点开头（这类文件/目录不会显示在文件树里）' }
+  if (name.length > 120) return { ok: false, error: '名字太长了（上限 120 字）' }
+  return { ok: true, name }
+}
+
+/** 新建文件 / 文件夹的结果（`path` 只在成功时有） */
+export interface CreateResult {
+  ok: boolean
+  path?: string
+  error?: string
+}
+
+/**
+ * 在 `dir` 里新建一个文件或文件夹。
+ *
+ * - 文件名没写扩展名时补 `.md`（这个软件只认 markdown，用户不需要自己敲）；
+ * - 用 `flag: 'wx'` / 非递归 `mkdir` 让**已存在自然失败**，不会覆盖别人的笔记
+ *   （这是"新建"最容易写错的地方：普通 writeFile 会把同名文件清空）。
+ */
+export async function createEntry(dir: string, rawName: string, isDir: boolean): Promise<CreateResult> {
+  const check = checkEntryName(rawName)
+  if (!check.ok) return { ok: false, error: check.error }
+
+  let name = check.name
+  if (!isDir && !/\.[A-Za-z0-9]+$/.test(name)) name += '.md'
+  const target = path.join(dir, name)
+
+  try {
+    if (isDir) {
+      await fs.mkdir(target)
+    } else {
+      await fs.writeFile(target, '', { encoding: 'utf8', flag: 'wx' })
+    }
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EEXIST') return { ok: false, error: `「${name}」已经存在` }
+    if (code === 'ENOENT') return { ok: false, error: '这个文件夹已经不在了（可能被删或改名）' }
+    if (code === 'EPERM' || code === 'EACCES') return { ok: false, error: '没有权限在这里写入' }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  return { ok: true, path: target }
+}
+
+/**
+ * 重命名（文件或文件夹）。
+ *
+ * 新名字**没带扩展名时沿用原来的**：把 `笔记.md` 改成 `笔记` 不该丢掉 `.md`
+ * —— 丢了文件就从文件树里消失了（树只列 `.md`/`.markdown`/`.txt`）。
+ * 用户显式写 `a.txt` 就照他写。
+ */
+export async function renameEntry(oldPath: string, rawName: string): Promise<CreateResult> {
+  const check = checkEntryName(rawName)
+  if (!check.ok) return { ok: false, error: check.error }
+
+  let st: import('node:fs').Stats
+  try {
+    st = await fs.stat(oldPath)
+  } catch {
+    return { ok: false, error: '这个文件已经不在了（可能被删或改名）' }
+  }
+
+  let name = check.name
+  const hasExt = /\.[A-Za-z0-9]+$/.test(name)
+  if (!st.isDirectory() && !hasExt) {
+    const oldExt = path.extname(oldPath)
+    if (oldExt) name += oldExt
+  }
+
+  const target = path.join(path.dirname(oldPath), name)
+  if (path.resolve(target).toLowerCase() === path.resolve(oldPath).toLowerCase()) {
+    // 只是大小写变化在 Windows 上也是同一个文件，别硬 rename（会报 EPERM）
+    return { ok: true, path: oldPath }
+  }
+  try {
+    // 目标已存在就报错：rename 会**直接覆盖**同名文件，那是删数据
+    await fs.access(target)
+    return { ok: false, error: `「${name}」已经存在` }
+  } catch {
+    /* 不存在才是我们要的 */
+  }
+
+  try {
+    await fs.rename(oldPath, target)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    if (code === 'EPERM' || code === 'EACCES') return { ok: false, error: '文件被别的程序占用，关掉再试' }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  return { ok: true, path: target }
+}
+
+/** 右键「属性」要显示的信息 */
+export interface EntryInfo {
+  path: string
+  name: string
+  isDir: boolean
+  /** 字节数（目录恒为 0） */
+  size: number
+  /** 修改时间（毫秒时间戳） */
+  mtimeMs: number
+}
+
+/** 取单个文件/目录的属性（不存在返回 null，调用方据此提示） */
+export async function statEntry(target: string): Promise<EntryInfo | null> {
+  try {
+    const st = await fs.stat(target)
+    return {
+      path: target,
+      name: path.basename(target),
+      isDir: st.isDirectory(),
+      size: st.isDirectory() ? 0 : st.size,
+      mtimeMs: st.mtimeMs,
+    }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 把文件/目录移动到另一个目录（拖拽移动）。
+ *
+ * 与重命名一样，**目标已存在就报错** —— `fs.rename` 会直接覆盖同名文件，
+ * 那是删数据。三条硬约束：
+ *   1. 源必须还在（拖着的这会儿可能被别的程序删了）；
+ *   2. 目标必须是**存在的目录**（不是文件、不是刚被删掉的目录）；
+ *   3. 不能把目录移进**它自己或它的子孙**里（会得到一个打不开的环）。
+ */
+export async function moveEntry(src: string, targetDir: string): Promise<CreateResult> {
+  let st: import('node:fs').Stats
+  try {
+    st = await fs.stat(src)
+  } catch {
+    return { ok: false, error: '这个文件已经不在了（可能被删或改名）' }
+  }
+
+  let dirSt: import('node:fs').Stats | null = null
+  try {
+    dirSt = await fs.stat(targetDir)
+  } catch {
+    return { ok: false, error: '目标文件夹已经不在了' }
+  }
+  if (!dirSt.isDirectory()) return { ok: false, error: '目标不是文件夹' }
+
+  const name = path.basename(src)
+  const dest = path.join(targetDir, name)
+  // 同一性比较用 resolve + 小写：Windows 上 `D://a` 与 `d:/a` 是同一个位置
+  const srcNorm = path.resolve(src).toLowerCase()
+  const dirNorm = path.resolve(targetDir).toLowerCase()
+
+  if (path.resolve(dest).toLowerCase() === srcNorm) {
+    return { ok: false, error: '已经在这个文件夹里了' }
+  }
+  if (st.isDirectory() && (dirNorm === srcNorm || dirNorm.startsWith(`${srcNorm}${path.sep}`))) {
+    return { ok: false, error: '不能把文件夹移到它自己里面' }
+  }
+
+  try {
+    await fs.access(dest)
+    return { ok: false, error: `目标文件夹里已经有「${name}」了` }
+  } catch {
+    /* 不存在才是我们要的 */
+  }
+
+  try {
+    await fs.rename(src, dest)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    // 跨卷 rename 在 Windows 上直接失败（EXDEV）。要做就得"复制整棵树 + 删源"，
+    // 中途失败会留下两份半成品 —— 这个版本不做，明确告诉用户。
+    if (code === 'EXDEV') return { ok: false, error: '不支持跨磁盘移动（两个位置不在同一个盘上）' }
+    if (code === 'EPERM' || code === 'EACCES') return { ok: false, error: '文件被别的程序占用，关掉再试' }
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+  return { ok: true, path: dest }
 }

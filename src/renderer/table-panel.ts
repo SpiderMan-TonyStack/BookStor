@@ -1,5 +1,6 @@
 import type { EditorView } from '@codemirror/view'
 import { tableAt, joinRow, type TableHit } from './table.js'
+import { alignTableColumn } from './editor.js'
 import { splitRow } from './table-parse.js'
 
 /**
@@ -29,6 +30,7 @@ type Action =
   | 'align-left'
   | 'align-center'
   | 'align-right'
+  | 'align-default'
 
 export function installTablePanel(opts: Options): { refresh: () => void } {
   const { el, getView, onStatus } = opts
@@ -123,14 +125,19 @@ export function installTablePanel(opts: Options): { refresh: () => void } {
     onStatus('已删除 1 列')
   }
 
-  function setAlign(hit: TableHit, view: EditorView, align: 'left' | 'center' | 'right'): void {
-    const doc = view.state.doc
-    const sep = doc.line(hit.block.firstLine + 1)
-    const cells = splitRow(sep.text)
-    while (cells.length <= hit.colIndex) cells.push('---')
-    cells[hit.colIndex] = align === 'left' ? ':---' : align === 'center' ? ':---:' : '---:'
-    view.dispatch({ changes: { from: sep.from, to: sep.to, insert: joinRow(cells) } })
-    onStatus(`第 ${hit.colIndex + 1} 列改为${align === 'left' ? '左' : align === 'center' ? '居中' : '右'}对齐`)
+  /**
+   * 改对齐。规则**不在这里实现** —— 走 editor.ts 的 `alignTableColumn`
+   * （与菜单、快捷键三条入口同一份）。这里原来自己拼 `:---` / `:---:` / `---:`，
+   * 会把用户的 `| :---- |` 压成 `| :--- |`、把 `|---|` 重排成 `| --- |`，
+   * 等于顺手格式化了别人的文件。视图更新也交给它 dispatch，一行代码两处规则迟早漂。
+   */
+  function setAlign(view: EditorView, align: 'left' | 'center' | 'right' | null): void {
+    if (!alignTableColumn(view, align)) {
+      onStatus('对齐没生效：光标不在表格里')
+      return
+    }
+    const label = align === 'left' ? '左对齐' : align === 'center' ? '居中' : align === 'right' ? '右对齐' : '默认对齐'
+    onStatus(`当前列已改为${label}`)
   }
 
   // ---------------------------------------------------------------- 事件
@@ -160,13 +167,16 @@ export function installTablePanel(opts: Options): { refresh: () => void } {
         delCol(hit, view)
         break
       case 'align-left':
-        setAlign(hit, view, 'left')
+        setAlign(view, 'left')
         break
       case 'align-center':
-        setAlign(hit, view, 'center')
+        setAlign(view, 'center')
         break
       case 'align-right':
-        setAlign(hit, view, 'right')
+        setAlign(view, 'right')
+        break
+      case 'align-default':
+        setAlign(view, null)
         break
       default:
         return

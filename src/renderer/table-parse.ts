@@ -87,7 +87,110 @@ export function columnAt(lineText: string, offset: number): number {
   return lineText.trimStart().startsWith('|') ? Math.max(0, bars - 1) : bars
 }
 
+/**
+ * 表格的一行有几列。
+ *
+ * 必须走 `splitRow`，不能自己 `text.split('|')` —— 单元格里的 `\|` 是**字面竖线**
+ * （`| p\|q |` 是一格，不是两格），自己切会把列数算多。库里 `C++教程/初步认识/运算符.md`
+ * 就有一张这样的表（表头含 `p\|q`）：按旧实现算成 6 列、实际 5 列，
+ * 「在下方插入行」会插出一条 6 格的行，整表被撑出一列空格子。
+ *
+ * 放在这里而不是 block-edits.ts，是因为它也属于「表格怎么切」这条规则，
+ * 而且 block-edits 要能被 `scripts/test-units.mjs` 直接 import（Node 的类型剥离
+ * 不做 `.js` → `.ts` 的重写，跨模块 import 会直接报找不到模块）。
+ */
+export function tableColumnCount(text: string): number {
+  if (!text.includes('|')) return 0
+  return splitRow(text).length
+}
+
 /** 单元格数组拼回一行 markdown（统一 `| a | b |` 风格） */
 export function joinRow(cells: string[]): string {
   return `| ${cells.join(' | ')} |`
+}
+
+/**
+ * 每个单元格在**原始行文本**里的区间（已跳过两侧空白与转义竖线）。
+ *
+ * 为什么需要它：改对齐只该动那一格里的冒号，不能像 `joinRow` 那样把整行重建成
+ * `| a | b |` —— 那等于顺手把用户的 `|---|:--:|---|` 格式化了。纯文本是唯一真源，
+ * 不是我们想改的地方就一个字节都不碰。所以这里返回**字符区间**，而不是值数组。
+ *
+ * 与 `splitRow` 保持同一套切分规则（首尾竖线可缺、`\|` 是字面竖线），
+ * 只是多带回位置。两处规则漂了的话，会出现「列数对得上、改错格」这种安静的错误。
+ */
+export function cellSpans(text: string): { start: number; end: number }[] {
+  const out: { start: number; end: number }[] = []
+  const n = text.length
+  const lead = n - text.trimStart().length
+  // 行首竖线只是边框，不算格
+  let i = text[lead] === '|' ? lead + 1 : lead
+  let cellStart = i
+  let first = -1
+  let last = -1
+
+  const flush = (): void => {
+    out.push(first < 0 ? { start: cellStart, end: cellStart } : { start: first, end: last + 1 })
+  }
+
+  while (i < n) {
+    const ch = text[i]!
+    if (ch === '\\' && text[i + 1] === '|') {
+      if (first < 0) first = i
+      last = i + 1
+      i += 2
+      continue
+    }
+    if (ch === '|') {
+      // 后面再没有非空白字符 → 这是行尾竖线（边框），到此为止，不多出一个空列
+      if (text.slice(i + 1).trim() === '') {
+        flush()
+        return out
+      }
+      flush()
+      i++
+      cellStart = i
+      first = -1
+      last = -1
+      continue
+    }
+    if (ch !== ' ' && ch !== '\t') {
+      if (first < 0) first = i
+      last = i
+    }
+    i++
+  }
+  flush()
+  return out
+}
+
+/**
+ * 一格的文本 → 改过对齐标记之后的文本。
+ *
+ * 只增删冒号，**短横线数量原样保留**（`| :---- |` 改成右对齐是 `----:`，
+ * 不是 `---:`）。Typora 自己也是只动冒号 —— 表格宽度是用户的排版，不该被我们改写。
+ */
+export function alignCellText(cell: string, align: Cell['align']): string {
+  const dashes = cell.replace(/[:\s]/g, '') || '---'
+  if (align === 'left') return `:${dashes}`
+  if (align === 'center') return `:${dashes}:`
+  if (align === 'right') return `${dashes}:`
+  return dashes
+}
+
+/**
+ * 就地改分隔行第 `col` 格的对齐方式。
+ *
+ * 返回**新的整行文本**，调用方只替换这一行。下面两种情况返回 null：这行根本不是
+ * 分隔行（拿别的行来改会把正文写坏）、`col` 越界。调用方据此提示，而不是硬写。
+ */
+export function setColumnAlign(text: string, col: number, align: Cell['align']): string | null {
+  const aligns = parseAlign(text)
+  if (!aligns || col < 0 || col >= aligns.length) return null
+  const span = cellSpans(text)[col]
+  if (!span) return null
+  const cell = text.slice(span.start, span.end)
+  const next = alignCellText(cell, align)
+  if (next === cell) return text
+  return text.slice(0, span.start) + next + text.slice(span.end)
 }

@@ -34,6 +34,16 @@ export function setKeymapPaused(value: boolean): void {
   paused = value
 }
 
+/**
+ * 当前是否处于暂停状态。
+ *
+ * 给「临时暂停一下」的调用方用（对话框打开期间要暂停快捷键）：它们关掉自己
+ * 那层时得知道**是不是自己暂停的**，否则会把别人（比如设置面板）设的暂停一起清掉。
+ */
+export function isKeymapPaused(): boolean {
+  return paused
+}
+
 /** 从配置重新拉一次覆盖表（改完快捷键、或启动时） */
 export async function reloadKeymap(): Promise<void> {
   try {

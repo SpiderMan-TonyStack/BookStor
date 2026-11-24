@@ -31,9 +31,21 @@
         <button id="jd-tab-outline" class="jd-tab" role="tab">大纲</button>
       </div>
       <div id="jd-panes">
-        <div id="jd-tree" role="tree"></div>
+        <div id="jd-files-wrap">
+          <!-- 文件面板的搜索：与大纲同款（输入即过滤，✕ 清空，下面一条分隔线） -->
+          <div id="jd-files-search">
+            <input id="jd-file-filter" type="text" placeholder="搜索文件" spellcheck="false" autocomplete="off" />
+            <button id="jd-file-clear" class="jd-ol-clear" title="清除搜索" aria-label="清除搜索">✕</button>
+          </div>
+          <div id="jd-tree" role="tree"></div>
+        </div>
         <!-- 大纲（M5-1）：标题列表，点一下跳到对应位置 -->
         <div id="jd-outline-wrap" class="hidden">
+          <!-- 查找：与 Typora 大纲一致（输入即过滤，右侧 ✕ 清空，下面一条分隔线） -->
+          <div id="jd-outline-search">
+            <input id="jd-ol-filter" type="text" placeholder="查找" spellcheck="false" autocomplete="off" />
+            <button id="jd-ol-clear" class="jd-ol-clear" title="清除查找" aria-label="清除查找">✕</button>
+          </div>
           <div id="jd-outline" role="list"></div>
         </div>
       </div>
@@ -84,8 +96,226 @@
         <button data-act="align-left" title="本列左对齐">左</button>
         <button data-act="align-center" title="本列居中">中</button>
         <button data-act="align-right" title="本列右对齐">右</button>
+        <button data-act="align-default" title="本列默认对齐（去掉冒号）">默认</button>
       </div>
     </main>
+
+    <!-- 偏好设置：左侧分区 + 右侧内容（对齐 Typora 的「偏好设置」，但只保留
+         对简牍真的成立的选项 —— Typora 的更新/许可/上传服务/多格式导出都不适用）。
+
+         每条开关的**真源是 shared/prefs.ts**：这里的 id 只是 DOM 锚点，
+         默认值、夹值规则（缩放 0.8–1.5、缩进只认 2/4）一律以那边为准。
+         主题下拉不自己造选项：打开时从侧栏的 #jd-theme 克隆，改动写回去并派发
+         change —— 两处各维护一份选项列表必然漂。 -->
+    <div id="jd-prefs" class="hidden">
+      <div id="jd-prefs-panel" role="dialog" aria-modal="true" aria-label="偏好设置">
+        <div id="jd-prefs-head">
+          <span>偏好设置</span>
+          <button id="jd-prefs-close" title="关闭 (Esc)">✕</button>
+        </div>
+        <div id="jd-prefs-main">
+          <nav id="jd-prefs-nav">
+            <button class="jd-prefs-tab is-active" data-pane="appearance">外观</button>
+            <button class="jd-prefs-tab" data-pane="editor">编辑器</button>
+            <button class="jd-prefs-tab" data-pane="files">文件</button>
+            <button class="jd-prefs-tab" data-pane="image">图像</button>
+            <button class="jd-prefs-tab" data-pane="export">导出</button>
+          </nav>
+          <div id="jd-prefs-body">
+            <section class="jd-prefs-pane" data-pane="appearance">
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-theme">主题</label>
+                <select id="jd-prefs-theme"></select>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">主题文件夹</span>
+                <div class="jd-prefs-dir">
+                  <code id="jd-prefs-dirpath" title="">—</code>
+                  <button id="jd-prefs-opendir">打开主题文件夹</button>
+                </div>
+              </div>
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-font">正文字体</label>
+                <input
+                  id="jd-prefs-font"
+                  class="jd-prefs-input"
+                  list="jd-prefs-font-list"
+                  placeholder="跟随主题"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <!-- 只是建议值，用户可以填任何已安装的字体名 -->
+                <datalist id="jd-prefs-font-list">
+                  <option value="微软雅黑"></option>
+                  <option value="思源黑体"></option>
+                  <option value="等线"></option>
+                  <option value="宋体"></option>
+                  <option value="楷体"></option>
+                  <option value="黑体"></option>
+                  <option value="Segoe UI"></option>
+                  <option value="Georgia"></option>
+                </datalist>
+              </div>
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-size">正文字号</label>
+                <input
+                  id="jd-prefs-size"
+                  class="jd-prefs-input jd-prefs-num"
+                  type="number"
+                  min="0"
+                  max="40"
+                  step="1"
+                  placeholder="0"
+                />
+                <span class="jd-prefs-unit">px，0 / 留空 = 跟随主题</span>
+                <button id="jd-prefs-font-reset">恢复默认</button>
+              </div>
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-zoom">界面缩放</label>
+                <select id="jd-prefs-zoom" class="jd-prefs-select">
+                  <option value="0.8">80%</option>
+                  <option value="0.9">90%</option>
+                  <option value="1">100%</option>
+                  <option value="1.1">110%</option>
+                  <option value="1.2">120%</option>
+                  <option value="1.3">130%</option>
+                  <option value="1.4">140%</option>
+                  <option value="1.5">150%</option>
+                </select>
+                <span class="jd-prefs-unit">Ctrl + 鼠标滚轮也能调</span>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">状态栏</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-statusbar" />
+                  显示底部状态栏（路径 / 字数 / 保存状态）
+                </label>
+              </div>
+              <p class="jd-prefs-hint">
+                把 <code>.css</code> 主题文件放进上面的主题文件夹里，就会出现在主题下拉中。
+                改完保存后正在使用的主题会自动重新加载，不用重启。
+                字体和字号留空 / 填 0 表示跟随主题；「恢复默认」会把这两项一起还原。
+              </p>
+            </section>
+
+            <section class="jd-prefs-pane" data-pane="editor" hidden>
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-indent">默认缩进</label>
+                <select id="jd-prefs-indent" class="jd-prefs-select">
+                  <option value="2">2 个空格</option>
+                  <option value="4">4 个空格</option>
+                </select>
+                <span class="jd-prefs-unit">列表缩进 / Tab</span>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">代码块</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-codeline" />
+                  显示行号
+                </label>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label"></span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-codewrap" />
+                  自动换行（长行折行，不横向滚动）
+                </label>
+              </div>
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-codelang">默认语言</label>
+                <input
+                  id="jd-prefs-codelang"
+                  class="jd-prefs-input"
+                  placeholder="空 = 不自动填"
+                  autocomplete="off"
+                  spellcheck="false"
+                  maxlength="20"
+                />
+                <span class="jd-prefs-unit">新建代码块时写入的语言标记，如 cpp</span>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">首行缩进</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-firstindent" />
+                  正文段落首行缩进 2 字符（不作用于列表 / 引用 / 代码）
+                </label>
+              </div>
+              <p class="jd-prefs-hint">
+                代码行号只是显示层：标记不加进文本，复制代码不会带上行号。
+                自动换行默认关闭 —— 代码横向滚动比折行更容易看出缩进层级。
+              </p>
+            </section>
+
+            <section class="jd-prefs-pane" data-pane="files" hidden>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">保存</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-autosave" />
+                  自动保存（停止输入约 0.8 秒后落盘）
+                </label>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">启动</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-restore" />
+                  打开上次编辑的文件
+                </label>
+              </div>
+              <p class="jd-prefs-hint">
+                关掉自动保存后，只有 <code>Ctrl+S</code> 才会写盘；崩溃草稿仍然每 300ms
+                落一份（那是最后一道防线，不跟着这个开关走）。
+                关窗时若有未保存的改动，仍会拦一次。
+              </p>
+            </section>
+
+            <section class="jd-prefs-pane" data-pane="image" hidden>
+              <div class="jd-prefs-row">
+                <label class="jd-prefs-label" for="jd-prefs-imgtemplate">保存目录</label>
+                <input
+                  id="jd-prefs-imgtemplate"
+                  class="jd-prefs-input jd-prefs-wide"
+                  placeholder="./.${filename}.assets"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <button id="jd-prefs-imgreset">恢复默认</button>
+              </div>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">路径写法</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-imgdot" />
+                  相对路径前加 <code>./</code>
+                </label>
+              </div>
+              <p class="jd-prefs-hint">
+                支持 <code>${filename}</code> 占位符（笔记名，不带扩展名）。
+                相对路径按<strong>这篇笔记所在目录</strong>解析，比如
+                <code>./${filename}.assets</code> 会得到与 Typora 相同的目录结构；
+                填绝对路径（如 <code>D:/images</code>）则图片统一存到那里。
+              </p>
+            </section>
+
+            <section class="jd-prefs-pane" data-pane="export" hidden>
+              <div class="jd-prefs-row">
+                <span class="jd-prefs-label">导出后</span>
+                <label class="jd-prefs-check">
+                  <input type="checkbox" id="jd-prefs-exportdir" />
+                  在资源管理器里定位导出的文件
+                </label>
+              </div>
+              <p class="jd-prefs-hint">
+                简牍目前只导出 PDF（通过系统打印链路，保留主题样式与 Mermaid 图）。
+                Word / HTML / LaTeX 这些需要 Pandoc 的格式没有接 —— Typora 的导出面板
+                大部分选项在这里都不适用。
+              </p>
+            </section>
+          </div>
+        </div>
+        <!-- 提示行放在面板底部而不是某个分区里：主题目录 / 字体 / 图片模板都会用到，
+             挂进某一个 pane 的话，在别的分区操作时提示写进了看不见的地方。 -->
+        <p class="jd-prefs-msg" id="jd-prefs-msg"></p>
+      </div>
+    </div>
 
     <!-- 快捷键设置：点右侧按键框进入录制，改完即生效（不用「应用」按钮）。
          默认隐藏，设置菜单 openSettings() 时才显示。 -->

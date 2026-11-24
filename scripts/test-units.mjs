@@ -41,6 +41,10 @@ let commands
 let lossless
 let markdownHtml
 let files
+let inlineMarks
+let imagePath
+let blockEdits
+let prefs
 try {
   heading = await import('../src/renderer/heading.ts')
   fence = await import('../src/renderer/fence.ts')
@@ -49,6 +53,10 @@ try {
   lossless = await import('../src/main/lossless.ts')
   markdownHtml = await import('../src/renderer/markdown-html.ts')
   files = await import('../src/main/files.ts')
+  inlineMarks = await import('../src/renderer/inline-marks.ts')
+  imagePath = await import('../src/shared/image-path.ts')
+  blockEdits = await import('../src/renderer/block-edits.ts')
+  prefs = await import('../src/shared/prefs.ts')
 } catch (err) {
   console.error(
     '✗ 加载 .ts 源文件失败\n' +
@@ -66,6 +74,8 @@ const { accelFromKey, prettyKey, sameAccel } = commands
 const { decodeBuffer, encodeText, mtimeConflicts } = lossless
 const { markdownToHtml } = markdownHtml
 const { writeNote, readNote } = files
+const { stripInline, findLinkAt } = inlineMarks
+const { cleanImageTarget } = imagePath
 
 // ---------------------------------------------------------------- 标题识别
 
@@ -705,4 +715,626 @@ test('markdown-html: 正文里的尖括号和 & 被转义', () => {
   const html = markdownToHtml('a < b & c > d')
   assert.match(html, /&lt;/)
   assert.match(html, /&amp;/)
+})
+
+// ---------------------------------------------------------------- 行内标记（清除样式 / 链接操作）
+
+test('inline: 剥掉成对标记', () => {
+  assert.equal(stripInline('**粗** 和 *斜* 和 ~~删~~'), '粗 和 斜 和 删')
+  assert.equal(stripInline('`code` 与 ==高亮=='), 'code 与 高亮')
+  assert.equal(stripInline('<u>下划线</u>保留'), '下划线保留')
+})
+
+test('inline: 链接只留文字、图片只留 alt', () => {
+  assert.equal(stripInline('看[这里](https://a.b/c)'), '看这里')
+  assert.equal(stripInline('![图](a.png)说明'), '图说明')
+})
+
+test('inline: 注释整段消失', () => {
+  assert.equal(stripInline('前<!-- 秘密 -->后'), '前后')
+})
+
+test('inline: 普通文本原样返回', () => {
+  const s = '没有标记的一句话'
+  assert.equal(stripInline(s), s)
+})
+
+test('inline: 找光标处的链接（含边界）', () => {
+  const line = '前 [文字](https://a.b) 后'
+  assert.deepEqual(findLinkAt(line, 6), { text: '文字', url: 'https://a.b', from: 2, to: 19 })
+  assert.deepEqual(findLinkAt(line, 2), { text: '文字', url: 'https://a.b', from: 2, to: 19 })
+  assert.deepEqual(findLinkAt(line, 19), { text: '文字', url: 'https://a.b', from: 2, to: 19 })
+  assert.equal(findLinkAt(line, 0), null)
+  assert.equal(findLinkAt('没有链接的一行', 3), null)
+})
+
+test('inline: 图片不算可打开的链接', () => {
+  assert.equal(findLinkAt('![图](a.png)', 3), null)
+})
+
+// ---------------------------------------------------------------- 图片路径清理
+//
+// 主进程（裂图检测）与渲染层（图片 widget）共用这一份。两边一旦漂开，
+// 表现是「正文里图能显示、裂图检测说不存在」，不报错也不崩，只能靠人肉发现。
+
+test('image: 普通相对路径原样返回', () => {
+  assert.equal(cleanImageTarget('./.笔记.assets/image-20261110175518-dac9.png'),
+               './.笔记.assets/image-20261110175518-dac9.png')
+})
+
+test('image: 去掉三种写法的 title', () => {
+  assert.equal(cleanImageTarget('a.png "标题"'), 'a.png')
+  assert.equal(cleanImageTarget("a.png '标题'"), 'a.png')
+  assert.equal(cleanImageTarget('a.png (标题)'), 'a.png')
+})
+
+test('image: 去掉尖括号包裹（带空格的文件名）', () => {
+  assert.equal(cleanImageTarget('<带 空格.png>'), '带 空格.png')
+})
+
+test('image: 无引号的空格文件名不能被当成 title 吃掉', () => {
+  // Typora 实测有 134 处直接写空格、不加引号也不编码 —— 这里必须保留
+  assert.equal(cleanImageTarget('image 2026.png'), 'image 2026.png')
+})
+
+test('image: 前后空白与空串', () => {
+  assert.equal(cleanImageTarget('  a.png  '), 'a.png')
+  assert.equal(cleanImageTarget(''), '')
+  assert.equal(cleanImageTarget('   '), '')
+})
+
+// ---------------------------------------------------------------- 段落块（4.3.0）
+//
+// 「段落」菜单里的块级操作全是「一行文本 → 换一种块前缀」的字符串变换。
+// 这类东西错起来很安静：缩进被吃掉、`1. a` 变成 `1. 1. a`、六级标题再降级
+// 反而清空 —— 渲染出来还是能看的文字，只能靠断言锁。
+//
+// 所有函数都约定**保留行首缩进**。库里 232 行 `- ## x`（列表项里嵌标题）
+// 就靠这条不被破坏，所以下面专门有一组缩进断言。
+
+const { blockKindOf, setBlockKind, splitIndent, stripBlockPrefix } = blockEdits
+const { changeHeadingLevel, headingLevelOf, indentList } = blockEdits
+const { toggleTaskChecked, setTaskChecked, isBlankLine, ordinalFor } = blockEdits
+
+test('block: 认得出五类块，且任务项优先于普通无序项', () => {
+  assert.equal(blockKindOf('普通段落'), 'p')
+  assert.equal(blockKindOf('> 引用'), 'quote')
+  assert.equal(blockKindOf('>无空格引用'), 'quote')
+  assert.equal(blockKindOf('- 无序'), 'ul')
+  assert.equal(blockKindOf('* 星号'), 'ul')
+  assert.equal(blockKindOf('1. 有序'), 'ol')
+  assert.equal(blockKindOf('2) 圆括号有序'), 'ol')
+  assert.equal(blockKindOf('- [ ] 待办'), 'task')
+  assert.equal(blockKindOf('- [x] 已完成'), 'task')
+  // `-1` 不是列表（后面没有空格），是正文
+  assert.equal(blockKindOf('-1 负号开头'), 'p')
+  // 缩进不影响判断
+  assert.equal(blockKindOf('    - 缩进四格'), 'ul')
+})
+
+test('block: 拆缩进 / 剥前缀都只动缩进之后那截', () => {
+  assert.deepEqual(splitIndent('  文本'), { indent: '  ', rest: '文本' })
+  assert.deepEqual(splitIndent('\t- a'), { indent: '\t', rest: '- a' })
+  // `- ## x` 剥成 `## x` —— 标题标记不能被当成列表前缀一起剥掉
+  assert.deepEqual(stripBlockPrefix('- ## x'), { indent: '', rest: '## x' })
+  // 引用 + 列表叠层只剥一层语义，四种前缀依次过一遍
+  assert.deepEqual(stripBlockPrefix('> - [ ] a'), { indent: '', rest: 'a' })
+})
+
+test('block: 改成各类块，保留缩进', () => {
+  assert.equal(setBlockKind('正文', 'quote'), '> 正文')
+  assert.equal(setBlockKind('正文', 'ul'), '- 正文')
+  assert.equal(setBlockKind('正文', 'task'), '- [ ] 正文')
+  assert.equal(setBlockKind('正文', 'ol'), '1. 正文')
+  assert.equal(setBlockKind('    正文', 'ul'), '    - 正文')
+  assert.equal(setBlockKind('1. 正文', 'ul'), '- 正文')
+  assert.equal(setBlockKind('> 正文', 'task'), '- [ ] 正文')
+})
+
+test('block: 已经是这一类就退回段落（toggle 语义）', () => {
+  // 没有这一步，用户就没有「取消列表」的入口 —— 只能手动删前缀
+  assert.equal(setBlockKind('- 正文', 'ul'), '正文')
+  assert.equal(setBlockKind('> 正文', 'quote'), '正文')
+  assert.equal(setBlockKind('1. 正文', 'ol'), '正文')
+  assert.equal(setBlockKind('- [ ] 正文', 'task'), '正文')
+  // 从别的块转过来仍是转，不是退回
+  assert.equal(setBlockKind('- [ ] 正文', 'ul'), '- 正文')
+})
+
+test('block: 有序列表的序号由调用方给，多行才排得下去', () => {
+  assert.equal(setBlockKind('甲', 'ol', 1), '1. 甲')
+  assert.equal(setBlockKind('乙', 'ol', 2), '2. 乙')
+  assert.equal(setBlockKind('丙', 'ol', 10), '10. 丙')
+  assert.equal(ordinalFor(0), 1)
+  assert.equal(ordinalFor(-3), 1)
+  assert.equal(ordinalFor(Number.NaN), 1)
+  assert.equal(ordinalFor(4), 4)
+})
+
+test('block: 提升 / 降低标题级别', () => {
+  // delta 是「级别变化量」：-1 = 提升（# 变少）、+1 = 降低（# 变多）。
+  // 方向搞反是这条函数最容易犯的错，所以两边都断言。
+  // 不是标题就一律不动 —— 不给「段落→H1」的便利（选中混排多行会误伤正文）
+  assert.equal(changeHeadingLevel('正文', -1), null)
+  assert.equal(changeHeadingLevel('正文', 1), null)
+  assert.equal(changeHeadingLevel('## 标题', -1), '# 标题')
+  assert.equal(changeHeadingLevel('## 标题', 1), '### 标题')
+  // 到顶 / 到底：级别夹在 1~6，内容不动（不返回 null —— 它确实是标题）
+  assert.equal(changeHeadingLevel('# 标题', -1), '# 标题')
+  assert.equal(changeHeadingLevel('###### 标题', 1), '###### 标题')
+  // 缩进与列表里的标题都要保住
+  assert.equal(changeHeadingLevel('  ## 标题', -1), '  # 标题')
+  // 列表项里嵌的标题（库里 232 行）不认 —— 那要连 `- ` 一起处理，是另一件事，
+  // 硬来会把列表结构拆掉
+  assert.equal(changeHeadingLevel('- ## 标题', -1), null)
+  // 尾部收尾的 `##` 不动（那是用户自己的写法）
+  assert.equal(changeHeadingLevel('## 标题 ##', 1), '### 标题 ##')
+  // `#` 与文字之间的间隔原样保留：库里 732 个标题是两个空格，
+  // 重新拼一个空格会让它「提升一级」时顺带改掉一个字节
+  assert.equal(changeHeadingLevel('###  流程概述', 1), '####  流程概述')
+  assert.equal(changeHeadingLevel('###  流程概述', -1), '##  流程概述')
+  assert.equal(changeHeadingLevel('##\t标题', 1), '###\t标题')
+})
+
+test('block: 标题级别（大纲 / 菜单打勾用）', () => {
+  assert.equal(headingLevelOf('# 一'), 1)
+  assert.equal(headingLevelOf('#### 四'), 4)
+  assert.equal(headingLevelOf('正文'), 0)
+  assert.equal(headingLevelOf('#没空格'), 0) // 不是标题语法
+})
+
+test('block: 列表缩进每级 2 空格，减到头夹到 0', () => {
+  assert.equal(indentList('- a', 1), '  - a')
+  assert.equal(indentList('  - a', 1), '    - a')
+  assert.equal(indentList('  - a', -1), '- a')
+  assert.equal(indentList('- a', -1), '- a')
+  assert.equal(indentList('1. 有序', 1), '  1. 有序')
+  // 引用行**不缩进**：`> x` 缩到 4 个空格就变成「缩进代码块」，
+  // 引用块会被降级成代码（连按三次「增加缩进」即可复现），所以一律不动
+  assert.equal(indentList('> 引用', 1), null)
+  assert.equal(indentList('  > 引用', 1), null)
+  // 正文不动：给普通段落加两个空格在 markdown 里没有任何语义，
+  // 只会在文件里留下看不见的空白差异（Typora 的「列表缩进」也不碰正文）
+  assert.equal(indentList('正文', 1), null)
+  assert.equal(indentList('    正文', -1), null)
+})
+
+test('block: 任务勾选（toggle 与明确设置两种）', () => {
+  assert.equal(toggleTaskChecked('- [ ] 待办'), '- [x] 待办')
+  assert.equal(toggleTaskChecked('- [x] 完成'), '- [ ] 完成')
+  assert.equal(toggleTaskChecked('- [X] 大写也算'), '- [ ] 大写也算')
+  assert.equal(toggleTaskChecked('- 普通列表'), null)
+  assert.equal(toggleTaskChecked('正文'), null)
+
+  assert.equal(setTaskChecked('- [ ] a', true), '- [x] a')
+  assert.equal(setTaskChecked('- [x] a', true), '- [x] a') // 已是目标状态，原样
+  assert.equal(setTaskChecked('- [x] a', false), '- [ ] a')
+  assert.equal(setTaskChecked('  - [ ] 缩进', true), '  - [x] 缩进')
+  assert.equal(setTaskChecked('正文', true), null)
+})
+
+test('block: 表格有几列（行尾竖线可省、转义竖线不算分隔）', () => {
+  assert.equal(tableColumnCount('| a | b |'), 2)
+  assert.equal(tableColumnCount('| a | b'), 2)
+  assert.equal(tableColumnCount('|---|'), 1)
+  // `||` 是「一个空格子」，算 1 列
+  assert.equal(tableColumnCount('||'), 1)
+  // 行首没写竖线也照样数（原实现要求行首必须有 `|`，否则返回 0 → 插入的新行只有 1 格）
+  assert.equal(tableColumnCount('a | b | c'), 3)
+  // 转义竖线是**字面竖线**，不能算分隔符。库里的真实用例：
+  // `C++教程/初步认识/运算符.md` 表头 `| p | q | p&q | p\|q | p^q |` 是 5 列，
+  // 自己 split('|') 会算成 6 → 「在下方插入行」把整表撑出一列空格子
+  assert.equal(tableColumnCount('| p | q | p&q | p\\|q | p^q |'), 5)
+  // 不是表格行
+  assert.equal(tableColumnCount('正文'), 0)
+  assert.equal(tableColumnCount(''), 0)
+})
+
+test('block: 空行判定', () => {
+  assert.equal(isBlankLine(''), true)
+  assert.equal(isBlankLine('   \t'), true)
+  assert.equal(isBlankLine(' \-'), false)
+})
+
+// ---------------------------------------------------------------- 表格列对齐（4.4.0）
+//
+// 「对齐」在 markdown 里只有一种表达：分隔行那一格的首尾冒号。改对齐必须**只动冒号**，
+// 短横线数量和整行空格风格原样保留 —— 一旦图省事用 joinRow 重建整行，
+// 用户的 `|---|:--:|---|` 会被格式化成 `| --- | :-: | --- |`，等于偷偷改别人的文件。
+
+const { cellSpans, alignCellText, setColumnAlign, tableColumnCount } = tableParse
+
+test('align: 单元格区间要含位置（含行首/行尾缺竖线的写法）', () => {
+  // 标准写法：三格，区间跳过两侧空格
+  assert.deepEqual(cellSpans('| --- | :--: | --- |'), [
+    { start: 2, end: 5 },
+    { start: 8, end: 12 },
+    { start: 15, end: 18 },
+  ])
+  // 无空格写法
+  assert.deepEqual(cellSpans('|---|:--:|---|'), [
+    { start: 1, end: 4 },
+    { start: 5, end: 9 },
+    { start: 10, end: 13 },
+  ])
+  // 首尾竖线都省略
+  assert.deepEqual(cellSpans('--- | ---'), [
+    { start: 0, end: 3 },
+    { start: 6, end: 9 },
+  ])
+  // 转义的 `\|` 是字面竖线，不能当分隔符
+  assert.equal(cellSpans('| a\\|b | --- |').length, 2)
+})
+
+test('align: 改标记只增删冒号，短横线宽度原样', () => {
+  assert.equal(alignCellText('---', 'left'), ':---')
+  assert.equal(alignCellText('---', 'center'), ':---:')
+  assert.equal(alignCellText('---', 'right'), '---:')
+  assert.equal(alignCellText('---', null), '---')
+  // 宽度不被压缩：`----` 不会变成 `---`
+  assert.equal(alignCellText(':----:', 'right'), '----:')
+  assert.equal(alignCellText('----', null), '----')
+  // 空单元格给个合法的兜底
+  assert.equal(alignCellText('', 'center'), ':---:')
+})
+
+test('align: 只替换目标那一格，整行其它字节不动', () => {
+  // 紧凑写法（无空格）改动后仍然是紧凑写法
+  assert.equal(setColumnAlign('|---|:--:|---|', 2, 'center'), '|---|:--:|:---:|')
+  // 第 0 列改右对齐
+  assert.equal(setColumnAlign('| --- | :--: | --- |', 0, 'right'), '| ---: | :--: | --- |')
+  // 取消对齐 = 只去掉冒号
+  assert.equal(setColumnAlign('| --- | :--: | --- |', 1, null), '| --- | -- | --- |')
+  // 首尾没有竖线时，两侧空格也照旧
+  assert.equal(setColumnAlign(' --- | --- ', 1, 'center'), ' --- | :---: ')
+  // 已经是目标状态 → 原样返回（不产生多余的改写）
+  assert.equal(setColumnAlign('| :---: | --- |', 0, 'center'), '| :---: | --- |')
+})
+
+test('align: 不是分隔行 / 列号越界 → null（不硬写）', () => {
+  assert.equal(setColumnAlign('| a | b |', 0, 'center'), null)
+  assert.equal(setColumnAlign('', 0, 'center'), null)
+  assert.equal(setColumnAlign('普通一行', 0, 'left'), null)
+  assert.equal(setColumnAlign('| --- | --- |', 2, 'left'), null)
+  assert.equal(setColumnAlign('| --- | --- |', -1, 'left'), null)
+})
+
+// ---------------------------------------------------------------- 围栏（4.4.1 补）
+//
+// 库里 `书籍/ue/gas.md` 一个文件就有 30 处 `    -   ```cpp`（代码块作为列表项的第一个
+// 子块，Typora 与 CommonMark 都认）。旧实现只认「前面全是空白」的围栏，
+// 于是这种行开不了块，而它们的**关闭**行（8 空格裸围栏）却是合法的 → 被当成开启
+// → 整篇里代码与正文成对反转（实测 UMG 核心架构.md 1919 行、gas.md 316 行归错）。
+
+test('fence: 列表项行上的围栏能开启（内容缩进 = 反引号所在列）', () => {
+  const st = createFenceState()
+  const open = stepFence(st, '    -   ```cpp')
+  assert.equal(open.isMarker, true)
+  assert.equal(open.lang, 'cpp')
+  assert.equal(open.indent, 8) // `    -   ` 共 8 列，关闭围栏也在这一列上
+  assert.equal(st.in, true)
+  // 内容行
+  assert.equal(stepFence(st, '        ShouldDo()').inside, true)
+  // 8 空格裸围栏关闭
+  const close = stepFence(st, '        ```')
+  assert.equal(close.isMarker, true)
+  assert.equal(st.in, false)
+})
+
+test('fence: 正文里用三个反引号包函数不算围栏', () => {
+  // `build.md` 里 4 处 `- ```bIWYU``` (说明)`：这是正文，不是围栏。
+  // 当成围栏开启的话，后面整篇会变成代码块。
+  const st = createFenceState()
+  const r = stepFence(st, '- ```bIWYU``` (Include What You Use) 标志')
+  assert.equal(r.isMarker, false)
+  assert.equal(st.in, false)
+})
+
+/** 这一行之后是否仍在代码块内 */
+const inBlock = (st) => st.in === true
+
+test('fence: 引用块里的围栏（`> ``` ）', () => {
+  const st = createFenceState()
+  const open = stepFence(st, '> ```c++')
+  assert.equal(open.isMarker, true)
+  assert.equal(open.lang, 'c++')
+  assert.equal(open.indent, 2) // 反引号在整行第 2 列，markers 靠它定位
+  assert.equal(inBlock(st), true)
+  // 引用内的内容行（每行都带 `> `）
+  assert.equal(stepFence(st, '> int x;').inside, true)
+  // 引用里的空行（只有一个 `>`）也算块内
+  assert.equal(stepFence(st, '>').inside, true)
+  // 同层关闭
+  assert.equal(stepFence(st, '> ```').isMarker, true)
+  assert.equal(inBlock(st), false)
+})
+
+test('fence: 引用结束会把里面的代码块一起结束', () => {
+  const st = createFenceState()
+  stepFence(st, '> ```')
+  assert.equal(inBlock(st), true)
+  // 没有 `>` 的空行 = 引用块结束 → 代码块也结束，这一行按正文处理
+  const r = stepFence(st, '')
+  assert.equal(r.inside, false)
+  assert.equal(inBlock(st), false)
+})
+
+test('fence: 引用 + 列表项一起套（`> - ```c++`）', () => {
+  const st = createFenceState()
+  const open = stepFence(st, '> - ```c++')
+  assert.equal(open.isMarker, true)
+  assert.equal(open.lang, 'c++')
+  assert.equal(stepFence(st, '>   GameplayEffect').inside, true)
+  assert.equal(stepFence(st, '>   ```').isMarker, true)
+  assert.equal(inBlock(st), false)
+})
+
+test('fence: 不同引用层的围栏不互相配对', () => {
+  const st = createFenceState()
+  stepFence(st, '> ```')
+  // 外面一层没有 `>` 的围栏不能关掉引用里的块（它属于另一层）
+  const r = stepFence(st, '```')
+  assert.equal(r.isMarker, false)
+  assert.equal(inBlock(st), false) // 但引用结束会把块关掉
+})
+
+test('fence: 首行带 BOM 的围栏要能认出（库里 4 篇整篇源码就是这种）', () => {
+  const st = createFenceState()
+  const open = stepFence(st, '\ufeff```c++')
+  assert.equal(open.isMarker, true)
+  assert.equal(open.lang, 'c++')
+  assert.equal(st.in, true)
+  assert.equal(stepFence(st, 'int main() {}').inside, true)
+  assert.equal(stepFence(st, '```').isMarker, true)
+  assert.equal(st.in, false)
+})
+
+// ---------------------------------------------------------------- 代码块语言（4.5.0）
+//
+// 「右下角选语言」看起来是 UI 功能，但真正容易出错的是**改写围栏**那一步：
+// 语言标记在哪几个字符上、`title="..."` 之类的附加信息有没有被顺手抹掉、
+// 没有语言时是从哪儿插入。这些都适合在这里钉死。
+
+const { fenceLang, withLang } = await import('../src/renderer/code-lang.ts')
+
+test('code-lang: 找出围栏里的语言标记（三种位置都认）', () => {
+  assert.deepEqual(fenceLang('```cpp'), { from: 3, to: 6, lang: 'cpp' })
+  assert.deepEqual(fenceLang('```'), { from: 3, to: 3, lang: '' })
+  assert.deepEqual(fenceLang('    ```python'), { from: 7, to: 13, lang: 'python' })
+  assert.deepEqual(fenceLang('> ```c++'), { from: 5, to: 8, lang: 'c++' })
+  assert.deepEqual(fenceLang('- ```js'), { from: 5, to: 7, lang: 'js' })
+  assert.deepEqual(fenceLang('~~~rust'), { from: 3, to: 7, lang: 'rust' })
+  // 反引号与语言之间有空格也认（位置指向语言本身）
+  assert.deepEqual(fenceLang('``` cpp'), { from: 4, to: 7, lang: 'cpp' })
+  // 不是围栏行
+  assert.equal(fenceLang('正文一行'), null)
+  assert.equal(fenceLang(''), null)
+})
+
+test('code-lang: 换语言只动语言那一段', () => {
+  assert.equal(withLang('```cpp', 'python'), '```python')
+  assert.equal(withLang('```', 'js'), '```js')
+  assert.equal(withLang('> ```cpp', 'python'), '> ```python')
+  assert.equal(withLang('    ```cpp', 'python'), '    ```python')
+  // 附加信息（GitHub 的 title="..."）原样留在原地
+  assert.equal(withLang('```cpp title="a b"', 'python'), '```python title="a b"')
+  // 清空语言：后面还有参数就留一个空格，没有就整体收干净
+  assert.equal(withLang('```cpp title="a b"', ''), '``` title="a b"')
+  assert.equal(withLang('``` cpp', ''), '```')
+  assert.equal(withLang('```cpp', ''), '```')
+  // 不是围栏行 → 不硬改
+  assert.equal(withLang('正文', 'js'), null)
+})
+
+// ---------------------------------------------------------------- 行内标记 → 纯文本（4.7.1）
+//
+// 大纲只能显示纯文本，`### **1. 结论**` 以前会在侧栏原样露出星号。
+// 这个函数**只做减法**：除了去掉标记字符什么都不改 —— 所以每条断言都盯着
+// 「内容有没有被多删/多留」，而不是格式好不好看。
+
+const { plainInlineMarkdown } = await import('../src/renderer/inline-text.ts')
+
+test('inline-text: 加粗 / 斜体 / 删除线 / 高亮 去掉标记，文字一字不动', () => {
+  assert.equal(plainInlineMarkdown('**1. UMG 和 Slate 是什么关系？**'), '1. UMG 和 Slate 是什么关系？')
+  assert.equal(plainInlineMarkdown('*斜体* 与 **加粗**'), '斜体 与 加粗')
+  assert.equal(plainInlineMarkdown('***又粗又斜***'), '又粗又斜')
+  assert.equal(plainInlineMarkdown('_下划线斜体_ 与 __加粗__'), '下划线斜体 与 加粗')
+  assert.equal(plainInlineMarkdown('~~删除~~ 和 ==高亮=='), '删除 和 高亮')
+})
+
+test('inline-text: 行内代码里的星号是字面量，不能当加粗', () => {
+  assert.equal(plainInlineMarkdown('带 `a**b**c` 的标题'), '带 a**b**c 的标题')
+  assert.equal(plainInlineMarkdown('`*x*`'), '*x*')
+  // 代码里连着多个空格要保住（先还原代码再归一空白的话就会被压掉）
+  assert.equal(plainInlineMarkdown('`a  b`'), 'a  b')
+})
+
+test('inline-text: 链接 / 图片 / 脚注 / HTML 只留可见文字', () => {
+  assert.equal(plainInlineMarkdown('[Typora](https://typora.io)'), 'Typora')
+  assert.equal(plainInlineMarkdown('![图注](a.png)'), '图注')
+  assert.equal(plainInlineMarkdown('见 [文档](../x.md) 与图文'), '见 文档 与图文')
+  assert.equal(plainInlineMarkdown('结论[^1]'), '结论')
+  assert.equal(plainInlineMarkdown('<u>下划线</u> 与 <sub>2</sub>'), '下划线 与 2')
+  assert.equal(plainInlineMarkdown('前 <!-- 注释 --> 后'), '前 后')
+})
+
+test('inline-text: 反斜杠转义还原成字面字符', () => {
+  assert.equal(plainInlineMarkdown('\\*不是斜体\\*'), '*不是斜体*')
+  assert.equal(plainInlineMarkdown('\\`不是代码\\`'), '`不是代码`')
+  assert.equal(plainInlineMarkdown('1 \\* 2 \\* 3'), '1 * 2 * 3')
+})
+
+test('inline-text: 不成对 / 内侧有空格的不当标记，原样保留', () => {
+  // 算式里的孤立星号不能被吃
+  assert.equal(plainInlineMarkdown('a * b * c'), 'a * b * c')
+  // 只开不闭
+  assert.equal(plainInlineMarkdown('**没闭合'), '**没闭合')
+  // 内侧紧贴空格：markers.ts 也不认这种
+  assert.equal(plainInlineMarkdown('a ** b ** c'), 'a ** b ** c')
+  // 空串
+  assert.equal(plainInlineMarkdown(''), '')
+})
+
+test('inline-text: 接到标题上 —— ### **1. 题** → 大纲显示「1. 题」', () => {
+  assert.equal(headingText('### **1. UMG 和 Slate 是什么关系？**'), '1. UMG 和 Slate 是什么关系？')
+  assert.equal(headingText('## 纯文本标题'), '纯文本标题')
+  // 收尾的可选 `##` 仍然要去掉，再去行内标记
+  assert.equal(headingText('## **标题** ##'), '标题')
+  // 列表项里的标题（`- ## x`）
+  assert.equal(headingText('- ## **嵌在列表里的标题**'), '嵌在列表里的标题')
+})
+
+// ---------------------------------------------------------------- 文件树右键（4.8.0）
+//
+// 右键菜单本身是 DOM 操作，靠 CDP 逐个点（已经点过 11 项）。这里钉的是
+// **两个纯函数层**：名字校验与展示格式化 —— 它们出错的方式很安静
+// （建出删不掉的怪文件 / 属性面板显示 0 字节），正好适合断言。
+
+const { formatSize, formatTime, fileKind } = await import('../src/renderer/format.ts')
+const { checkEntryName } = files
+
+test('entry-name: 合法名字原样通过（首尾空格自动去掉）', () => {
+  assert.deepEqual(checkEntryName('新笔记'), { ok: true, name: '新笔记' })
+  assert.deepEqual(checkEntryName('  两边有空格  '), { ok: true, name: '两边有空格' })
+  assert.deepEqual(checkEntryName('带 空格 的名字'), { ok: true, name: '带 空格 的名字' })
+  // 中文、英文、点号（不是开头）、下划线都放行
+  assert.deepEqual(checkEntryName('v1.2 说明_v2'), { ok: true, name: 'v1.2 说明_v2' })
+})
+
+test('entry-name: 空 / . / .. / 点开头一律拒', () => {
+  for (const bad of ['', '   ', '.', '..', '.hidden', '.assets']) {
+    assert.equal(checkEntryName(bad).ok, false, JSON.stringify(bad))
+  }
+})
+
+test('entry-name: Windows 非法字符逐个拒（建出来会删不掉）', () => {
+  for (const bad of ['a/b', 'a\\b', 'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b']) {
+    const r = checkEntryName(bad)
+    assert.equal(r.ok, false, JSON.stringify(bad))
+    assert.match(r.error, /不能包含/)
+  }
+  // 控制字符（粘贴带进来的 \u0000-\u001f）
+  assert.equal(checkEntryName('a\u0001b').ok, false)
+})
+
+test('entry-name: 超长名字拒（上限 120）', () => {
+  assert.equal(checkEntryName('a'.repeat(120)).ok, true)
+  assert.equal(checkEntryName('a'.repeat(121)).ok, false)
+})
+
+test('format: 大小按 字节 / KB / MB 分档，无效值不瞎猜', () => {
+  assert.equal(formatSize(0), '0 字节')
+  assert.equal(formatSize(1023), '1023 字节')
+  assert.equal(formatSize(1024), '1.0 KB')
+  assert.equal(formatSize(1536), '1.5 KB')
+  assert.equal(formatSize(1024 * 1024), '1.00 MB')
+  // 负数 / NaN 不能显示成「-1 字节」或「NaN 字节」
+  assert.equal(formatSize(-1), '未知')
+  assert.equal(formatSize(Number.NaN), '未知')
+})
+
+test('format: 时间戳格式固定，无效时间返回「未知」', () => {
+  // 时区相关，不断言具体值，只断言形状（属性面板要求"一眼能读"）
+  assert.match(formatTime(Date.UTC(2026, 10, 12, 8, 7)), /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/)
+  assert.equal(formatTime(Number.NaN), '未知')
+  assert.equal(formatTime(Number.POSITIVE_INFINITY), '未知')
+})
+
+test('format: 扩展名决定类型名', () => {
+  assert.equal(fileKind('a.md'), 'Markdown 文档')
+  assert.match(fileKind('a.markdown'), /\.markdown/)
+  assert.match(fileKind('a.txt'), /\.txt/)
+  // 大小写不敏感
+  assert.match(fileKind('A.MARKDOWN'), /\.markdown/)
+})
+
+// ---------------------------------------------------------------- 偏好设置（4.10.0）
+//
+// 这几条守的是「设置自己坏了」：配置文件是用户可以手改的，一个字段写错
+// 不该让某个开关变成 undefined —— `if (prefs.autosave)` 会把 undefined 当 false，
+// 自动保存**静默关掉**，而界面上没有任何异常。夹值规则也在这里锁死，
+// 主进程和面板都只信这一份。
+
+const { sanitizePrefs, PREFS_DEFAULTS, applyImageTemplate, IMAGE_TEMPLATE_DEFAULT } = prefs
+
+test('prefs: 空输入 = 全默认，且不共享同一个对象', () => {
+  const a = sanitizePrefs(undefined)
+  assert.deepEqual(a, PREFS_DEFAULTS)
+  // 返回的必须是新对象：直接返回 DEFAULTS 会让调用方改一处、全局默认值跟着变
+  assert.notEqual(a, PREFS_DEFAULTS)
+  a.autosave = false
+  assert.equal(PREFS_DEFAULTS.autosave, true)
+})
+
+test('prefs: 未知键丢弃，认识的键逐个覆盖', () => {
+  const p = sanitizePrefs({ autosave: false, codeWrap: true, 乱写的: 1, __proto__: null })
+  assert.equal(p.autosave, false)
+  assert.equal(p.codeWrap, true)
+  assert.equal('乱写的' in p, false)
+  // 没提到的键保持默认，不会被 undefined 冲掉
+  assert.equal(p.showStatusbar, true)
+  assert.equal(p.indentWidth, 2)
+})
+
+test('prefs: 缩进只认 2 / 4，其他值回落到基准', () => {
+  assert.equal(sanitizePrefs({ indentWidth: 4 }).indentWidth, 4)
+  assert.equal(sanitizePrefs({ indentWidth: 2 }).indentWidth, 2)
+  assert.equal(sanitizePrefs({ indentWidth: 3 }).indentWidth, 2)
+  assert.equal(sanitizePrefs({ indentWidth: '4' }).indentWidth, 2)
+  // 局部更新时的基准是「当前配置」，不是默认值
+  assert.equal(sanitizePrefs({ autosave: false }, { ...PREFS_DEFAULTS, indentWidth: 4 }).indentWidth, 4)
+})
+
+test('prefs: 缩放夹在 0.8–1.5，坏值不把界面缩没', () => {
+  assert.equal(sanitizePrefs({ zoom: 9 }).zoom, 1.5)
+  assert.equal(sanitizePrefs({ zoom: 0.1 }).zoom, 0.8)
+  assert.equal(sanitizePrefs({ zoom: 1.1 }).zoom, 1.1)
+  assert.equal(sanitizePrefs({ zoom: Number.NaN }).zoom, 1)
+  // 浮点误差要收掉：1.15 存成 1.1499999999999999 会让面板下拉永远对不上
+  assert.equal(sanitizePrefs({ zoom: 1.1499999999999999 }).zoom, 1.15)
+})
+
+test('prefs: 代码块语言只收合法形状（它会被拼进围栏）', () => {
+  assert.equal(sanitizePrefs({ codeDefaultLang: 'cpp' }).codeDefaultLang, 'cpp')
+  assert.equal(sanitizePrefs({ codeDefaultLang: '  c++  ' }).codeDefaultLang, 'c++')
+  assert.equal(sanitizePrefs({ codeDefaultLang: 'c#' }).codeDefaultLang, 'c#')
+  assert.equal(sanitizePrefs({ codeDefaultLang: '' }).codeDefaultLang, '')
+  // 带空格 / 换行的不接受：会把围栏写坏或多插一行
+  assert.equal(sanitizePrefs({ codeDefaultLang: 'a b' }).codeDefaultLang, '')
+  // 粘贴整段围栏头时把反引号剥掉（```js → js），而不是判非法
+  assert.equal(sanitizePrefs({ codeDefaultLang: '```js' }).codeDefaultLang, 'js')
+  assert.equal(sanitizePrefs({ codeDefaultLang: 'include\nx' }).codeDefaultLang, '')
+})
+
+test('prefs: 图片模板替换占位符，空模板回落默认', () => {
+  assert.equal(applyImageTemplate('./.${filename}.assets', '笔记A'), './.笔记A.assets')
+  assert.equal(applyImageTemplate('assets/${ noteName }', '笔记B'), 'assets/笔记B')
+  assert.equal(applyImageTemplate('', '笔记C'), IMAGE_TEMPLATE_DEFAULT.replace('${filename}', '笔记C'))
+  // 没有占位符就原样（统一存到一个固定目录的用法）
+  assert.equal(applyImageTemplate('D:/images', 'x'), 'D:/images')
+  // 模板里的反斜杠换成斜杠：markdown 里反斜杠是转义符
+  assert.equal(sanitizePrefs({ imageDirTemplate: 'assets\\${filename}' }).imageDirTemplate, 'assets/${filename}')
+})
+
+test('image: markdown 引用路径（相对 / ./ / 绝对）', () => {
+  const { imageMarkdownPath } = files
+  // 默认（加 ./）：和 Typora 写法一致
+  assert.equal(imageMarkdownPath('C:/notes', 'C:/notes/.a.assets', 'x.png', true, false), './.a.assets/x.png')
+  // 关掉 ./：仍是相对路径，只是不带头
+  assert.equal(imageMarkdownPath('C:/notes', 'C:/notes/.a.assets', 'x.png', false, false), '.a.assets/x.png')
+  // 模板本身是绝对路径：原样输出（正斜杠），不加 ./
+  assert.equal(imageMarkdownPath('C:/notes', 'D:/images', 'x.png', true, true), 'D:/images/x.png')
+  // 已经在子目录外面：保留 ../（不再叠一层 ./，./../ 是没意义的写法）
+  assert.equal(imageMarkdownPath('C:/notes/sub', 'C:/notes/img', 'x.png', true, false), '../img/x.png')
+})
+
+test('block: 缩进宽度可配 4 空格，且只影响列表行', () => {
+  assert.equal(blockEdits.indentList('- a', 1, 2), '  - a')
+  assert.equal(blockEdits.indentList('- a', 1, 4), '    - a')
+  assert.equal(blockEdits.indentList('  - a', -1, 4), '- a')
+  // 宽度只认 2/4：传 3 按 2 处理（否则库内已有的 2 空格层级会对不齐）
+  assert.equal(blockEdits.indentList('- a', 1, 3), '  - a')
+  // 正文与引用不缩进（引用缩 4 空格会变成缩进代码块）
+  assert.equal(blockEdits.indentList('正文', 1, 4), null)
+  assert.equal(blockEdits.indentList('> 引用', 1, 4), null)
 })

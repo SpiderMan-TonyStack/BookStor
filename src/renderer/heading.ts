@@ -13,6 +13,10 @@
  * 既不算标题、也收不进大纲，`##` 还照样显示在正文里。现在统一走 parseHeading()。
  */
 
+// 显式写 .ts：scripts/test-units.mjs 用 Node 的类型剥离直接 import 本文件，
+// 而 Node 不做 .js → .ts 的扩展名替换（同 files.ts 顶部的说明）。
+import { plainInlineMarkdown } from './inline-text.ts'
+
 export interface HeadingInfo {
   /** 1–6 */
   level: number
@@ -55,9 +59,19 @@ export function parseHeading(text: string): HeadingInfo | null {
   return null
 }
 
-/** 取标题正文（去掉标记和可选的收尾 `##`），用于大纲 */
+/**
+ * 取标题正文（去掉标记和可选的收尾 `##`），用于**大纲**。
+ *
+ * 行内标记（`**加粗**`、`*斜体*`、`` `code` ``、链接…）在这里一并抹成纯文本：
+ * 大纲是"一行文字 + 点击跳转"，塞不进 `<strong>`/`<em>` 的语义，留着星号只会让
+ * 侧栏出现 `**1. 结论**` 这种半截源码（4.7.1 修的就是这个）。
+ *
+ * 注意：**只影响显示**。文档本身一个字都不动 —— 正文里的加粗/斜体照常渲染，
+ * `getDoc()` 拿到的仍是原始 markdown。
+ */
 export function headingText(text: string): string {
   const info = parseHeading(text)
   if (!info) return ''
-  return text.slice(info.textStart).trim().replace(/[ \t]+#+[ \t]*$/, '')
+  const raw = text.slice(info.textStart).trim().replace(/[ \t]+#+[ \t]*$/, '')
+  return plainInlineMarkdown(raw)
 }

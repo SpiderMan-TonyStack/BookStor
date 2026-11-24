@@ -149,7 +149,12 @@
 #write .jd-code-line,
 #write .jd-table-row,
 #write .jd-hr,
-#write .jd-blank {
+#write .jd-blank,
+/* 4.3.0 段落菜单新增的块，同样进不了高度模型，一律清零（见 theme-base.css 尾部） */
+#write .jd-frontmatter,
+#write .jd-math,
+#write .jd-adm,
+#write .jd-footnote-def {
   margin-top: 0 !important;
   margin-bottom: 0 !important;
 }
@@ -237,4 +242,50 @@
 
 #write .jd-table-row.jd-table-last {
   border-bottom: 1px solid rgba(127, 127, 127, 0.35);
+}
+/* ---------------------------------------------------------------- 偏好开关（4.10.0）
+ *
+ * 三个开关全部**只改显示**，不动文本：
+ *   - 行号挂在 ::before 上（绝对定位，不进 CM6 高度模型 —— 见 theme-fix 开头
+ *     关于 margin 的教训，凡是撑高行的东西都会让点击落错行）；
+ *   - 自动换行改 white-space；
+ *   - 首行缩进用 text-indent。
+ *
+ * 都带 `#write.` 前缀：这是用户的显式选择，必须压过主题可能写的同名规则；
+ * 不带前缀的话（0,1,0）会被 `#write .cm-line`（1,1,0）压回去，表现是"开关点了没反应"。
+ */
+
+/* 行号：数字来自 lineclasses.ts 写在行上的 data-ln，不参与文本、复制不到 */
+#write.jd-code-lineno .jd-code-line {
+  padding-left: 3.4em;
+}
+
+#write.jd-code-lineno .jd-code-line::before {
+  content: attr(data-ln);
+  position: absolute;
+  left: 0.85em;
+  width: 1.9em;
+  text-align: right;
+  color: color-mix(in srgb, currentColor 42%, transparent);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* 围栏行没有 data-ln → attr() 为空，不显示数字；但保留同样的左内边距，
+   否则代码首行会比围栏缩进一截，看着像错位。 */
+#write.jd-code-lineno .jd-code-fence::before {
+  content: '';
+}
+
+/* 自动换行：代码块内折行。长 token（URL、base64）也要断，否则等于没换 */
+#write.jd-code-wrap .jd-code-line {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* 首行缩进：只作用于普通段落。列表 / 引用 / 代码 / 表格各有自己的缩进语义，
+   一起缩会把「列表的悬挂缩进」和「引用的左侧竖线」弄歪。 */
+#write.jd-first-indent .cm-line.jd-p:not(.jd-blank) {
+  text-indent: 2em;
 }

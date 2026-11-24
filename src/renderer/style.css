@@ -159,7 +159,9 @@ body {
   left: 50%;
   bottom: -1px;
   transform: translateX(-50%);
-  width: 52px;
+  /* Typora 的下划线约占标签宽度的 2/3（量出来 113/165），不是居中的一小段 */
+  width: 68%;
+  max-width: 132px;
   height: 2px;
   border-radius: 1px;
   background: #ffffff;
@@ -202,109 +204,257 @@ body {
   display: none;
 }
 
-#jd-outline-head {
+/* 查找栏：输入框 + 右侧 ✕，下面一条分隔线（对照 Typora 大纲截量出来的） */
+#jd-sidebar #jd-outline-search,
+#jd-sidebar #jd-files-search {
   flex: 0 0 auto;
-  padding: 6px 12px 4px;
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: #6f6f6f;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 7px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
 }
 
-#jd-outline {
+#jd-sidebar #jd-ol-filter,
+#jd-sidebar #jd-file-filter {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 12.5px;
+  color: var(--jd-sidebar-fg);
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 3px;
+  outline: none;
+}
+
+#jd-sidebar #jd-ol-filter::placeholder,
+#jd-sidebar #jd-file-filter::placeholder {
+  color: #6a6a6a;
+}
+
+#jd-sidebar #jd-ol-filter:focus,
+#jd-sidebar #jd-file-filter:focus {
+  border-color: var(--jd-accent);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+#jd-sidebar .jd-ol-clear {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: #8a8a8a;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+#jd-sidebar .jd-ol-clear:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/*
+ * 大纲列表：字号 14px、行高 1.9 ≈ 27px 一行 —— 这两个数是照着 Typora 大纲
+ * 截图量出来的（原先是 12.5px / 24.75px，密得读不清层级）。
+ * 行距已经完全由 line-height 提供，所以 item 不再加上下 padding。
+ *
+ * ⚠ 选择器**必须带 `#jd-sidebar` 前缀**：`shell-guard.css` 里有一条
+ *   `#jd-sidebar, #jd-sidebar * { line-height: 1.5 }`（防止 Typora 主题的
+ *   `div{}`/`*{}` 把侧栏刷成白板），它是 (1,0,0) 且**在 style.css 之后加载** ——
+ *   只写 `#jd-outline` 也是 (1,0,0)，会输在先后顺序上，行高被悄悄压回 1.5。
+ *   之前那句 `line-height: 1.45` 就是这么一直没生效的（实测 18.75px = 12.5×1.5）。
+ */
+#jd-sidebar #jd-outline {
   flex: 1 1 auto;
   overflow: auto;
   padding-bottom: 8px;
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: 14px;
+  line-height: 1.9;
 }
 
-.jd-outline-item {
-  padding-top: 3px;
-  padding-bottom: 3px;
+#jd-sidebar .jd-outline-item {
+  /* `#jd-sidebar *` 会直接给每一行也写 line-height:1.5（(1,0,0)，且更新更晚），
+     直接声明永远赢过继承 —— 所以这里必须显式 inherit，否则外层 1.9 白设。 */
+  line-height: inherit;
   padding-right: 10px;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--jd-sidebar-fg);
+  /* 只用来占位对齐（文字左边界 = 2 + paddingLeft），当前项不再靠它标色 */
   border-left: 2px solid transparent;
 }
 
-.jd-outline-item:hover {
+#jd-sidebar .jd-outline-item:hover {
   background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
 
-.jd-outline-item.is-current {
-  color: var(--jd-accent);
-  border-left-color: var(--jd-accent);
-  background: rgba(0, 196, 182, 0.08);
+/* 当前章节：整行浅色底、文字提亮（Typora 也是整行高亮，没有左侧竖条） */
+#jd-sidebar .jd-outline-item.is-current {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.075);
 }
 
-.jd-outline-lv1 {
-  font-weight: 600;
-}
-
-.jd-outline-lv2 {
-  font-weight: 500;
-}
-
-.jd-outline-empty {
-  padding: 4px 12px;
+#jd-sidebar .jd-outline-empty {
+  padding: 6px 12px;
   color: #5f5f5f;
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
-.jd-node {
+/* ---------------------------------------------------------------- 文件树（4.9.1）
+ *
+ * 目标：**文件夹和文件一眼能分开**，三种状态（默认 / 悬停 / 选中）都清楚。
+ *
+ * 原来两者是同一种浅灰实心图标、同样 13px、同样字重 —— 在深色背景的
+ * 13px 尺寸下，形状差异几乎看不出来（用户截图就是这么反馈的）。
+ * 光靠一个维度不够稳，这里四个维度**同时**区分：
+ *
+ *   维度      文件夹                      文件
+ *   ────────  ──────────────────────────  ──────────────────────────
+ *   形状      实心两片（有"盖"，像容器）   细线描边（空心，像一页纸）
+ *   颜色      accent 青 #00c4b6            中性灰 #939ca6
+ *   尺寸      14px                        12px
+ *   文字      500 字重 + #e0e5ea           400 字重 + #b8bfc7
+ *
+ * 颜色语义也要守住：**青 = 容器，灰/白 = 内容**。所以"当前打开的那篇"
+ * 高亮时图标变纯白而不是变青 —— 变青会和文件夹撞色。
+ */
+#jd-sidebar .jd-node {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 12px 3px 0;
+  gap: 3px;
+  padding: 5px 12px 5px 0;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
-  color: var(--jd-sidebar-fg);
+  color: #b8bfc7;
+  font-weight: 400;
 }
 
-.jd-node:hover {
-  background: #242424;
+/* 文件夹行：文字更亮、稍加粗。不看图标也能从"字"分出这是目录 */
+#jd-sidebar .jd-node[data-node-dir='1'] {
+  color: #e4e9ee;
+  font-weight: 600;
 }
 
-.jd-node.is-active {
-  background: #2d5c8a;
-  color: #fff;
+#jd-sidebar .jd-node:hover {
+  background: #262626;
+  color: #ffffff;
 }
 
-.jd-node-name {
+/* 打开着的那篇：整行淡白底 + 纯白字（Typora 也不用蓝底，蓝色太抢） */
+#jd-sidebar .jd-node.is-active {
+  background: rgba(255, 255, 255, 0.13);
+  color: #ffffff;
+}
+
+#jd-sidebar .jd-node-name {
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.jd-caret {
-  flex: 0 0 14px;
+/* 折角：4px 宽的小三角，靠 rotate 表示开合。9px/0.75 比原来的 8px 好认 */
+#jd-sidebar .jd-caret {
+  flex: 0 0 10px;
   text-align: center;
   font-size: 9px;
-  opacity: 0.6;
+  line-height: 1;
+  opacity: 0.75;
+  color: inherit;
   transition: transform 0.12s;
 }
 
-.jd-caret.collapsed {
+#jd-sidebar .jd-caret.collapsed {
   transform: rotate(-90deg);
 }
 
-/* 文件夹 / 文件图标 */
-.jd-icon {
-  flex: 0 0 auto;
-  font-size: 12px;
-  line-height: 1;
-  opacity: 0.9;
+#jd-sidebar .jd-icon {
+  flex: 0 0 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.jd-children {
+/* ---- 文件：细线描边、中性灰 ---- */
+#jd-sidebar .jd-node[data-node-dir='0'] .jd-icon {
+  color: #9fa8b2;
+}
+
+#jd-sidebar .jd-node[data-node-dir='0'] .jd-icon svg {
   display: block;
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linejoin: round;
+  stroke-linecap: round;
 }
 
-.jd-children.hidden {
+#jd-sidebar .jd-node[data-node-dir='0']:hover .jd-icon,
+#jd-sidebar .jd-node[data-node-dir='0'].is-active .jd-icon {
+  color: #ffffff;
+}
+
+/* ---- 文件夹：实心、accent 青、大一号 ---- */
+#jd-sidebar .jd-node[data-node-dir='1'] .jd-icon {
+  color: var(--jd-accent, #00c4b6);
+}
+
+#jd-sidebar .jd-node[data-node-dir='1'] .jd-icon svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+#jd-sidebar .jd-node[data-node-dir='1']:hover .jd-icon {
+  color: color-mix(in srgb, var(--jd-accent, #00c4b6) 72%, #ffffff);
+}
+
+/* 展开的目录：三角也用 accent 调，和它自己的图标呼应（收起时用中性色，别太吵） */
+#jd-sidebar .jd-node[data-node-dir='1'] .jd-caret:not(.collapsed) {
+  color: color-mix(in srgb, var(--jd-accent, #00c4b6) 62%, #9aa0a6);
+}
+
+/* ---------------------------------------------------------------- 层级引导线
+ *
+ * 子级左侧一条极淡的竖线，从父行的图标位置垂下来。没有它，"这是谁的子项"
+ * 只能靠左边距猜；有了它，多层嵌套一眼就是一棵树。
+ *
+ * `--jd-guide` 由 tree.ts 按 depth 写进行内 style（24 + depth*16），
+ * `pointer-events: none` 是必须的：否则这条绝对定位的 1px 线会挡住
+ * 行的 mousedown / dragover，表现为"偶尔点不动、拖不进去"。
+ */
+#jd-sidebar .jd-children {
+  display: block;
+  position: relative;
+}
+
+#jd-sidebar .jd-children::before {
+  content: '';
+  position: absolute;
+  left: var(--jd-guide, 24px);
+  top: 0;
+  bottom: 2px;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.07);
+  pointer-events: none;
+}
+
+#jd-sidebar .jd-children.hidden {
   display: none;
 }
 
@@ -1158,4 +1308,851 @@ body {
   color: #8b949e;
   line-height: 1.9;
   white-space: pre-wrap;
+}
+
+/* ---------------------------------------------------------------- 偏好设置
+ *
+ * 遮罩 / 面板的观感刻意和 #jd-settings 保持一致（同一个 z-index 层），
+ * 免得两个弹窗一个像对话框、一个像网页。
+ *
+ * 布局是「左分区 + 右内容」：现在只有「外观」，但分区形式先立起来 ——
+ * 以后加「编辑器」「快捷键」不用再动结构。
+ *
+ * ⚠ 主题下拉**不在这里定义选项**：选项由 prefs.ts 从侧栏 #jd-theme 克隆，
+ *   改动写回去再派发 change，走同一条 switchTheme 路径。
+ */
+#jd-prefs {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+#jd-prefs.hidden {
+  display: none;
+}
+
+#jd-prefs-panel {
+  width: min(680px, 90vw);
+  max-height: 76vh;
+  display: flex;
+  flex-direction: column;
+  background: #242528;
+  border: 1px solid var(--jd-border);
+  border-radius: 8px;
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  color: #d6d6d6;
+  font-size: 13px;
+}
+
+#jd-prefs-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--jd-border);
+}
+
+#jd-prefs-close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: #8a8f98;
+  font-size: 15px;
+  line-height: 1;
+  padding: 4px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+#jd-prefs-close:hover {
+  background: #33353a;
+  color: #ddd;
+}
+
+#jd-prefs-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+
+#jd-prefs-nav {
+  flex: 0 0 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  background: #1f2023;
+  border-right: 1px solid var(--jd-border);
+}
+
+/* 分区按钮的文字要用 flex 居中/左对齐：Chromium 的 button 匿名盒不认 text-align
+   （getComputedStyle 里仍是 left，但视觉上会居中） */
+.jd-prefs-tab {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  padding: 7px 10px;
+  color: #b9b9b9;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.jd-prefs-tab:hover {
+  background: #2b2d31;
+  color: #ddd;
+}
+
+.jd-prefs-tab.is-active {
+  background: #33353a;
+  color: #eaeaea;
+  font-weight: 600;
+}
+
+#jd-prefs-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  padding: 18px 20px 20px;
+}
+
+.jd-prefs-pane[hidden] {
+  display: none;
+}
+
+.jd-prefs-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.jd-prefs-label {
+  flex: 0 0 74px;
+  color: #9aa0a8;
+  font-size: 12px;
+}
+
+#jd-prefs-theme {
+  flex: 0 1 220px;
+  min-width: 0;
+  appearance: none;
+  background: #1d1e20;
+  border: 1px solid var(--jd-border);
+  border-radius: 4px;
+  color: #d6d6d6;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+#jd-prefs-theme:focus {
+  outline: 1px solid var(--jd-accent);
+  outline-offset: 1px;
+}
+
+.jd-prefs-dir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 路径可能很长（%APPDATA% 之外的盘符路径），单行省略，title 里放全路径 */
+#jd-prefs-dirpath {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #1d1e20;
+  border: 1px solid var(--jd-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  color: #b9c0c8;
+  font-family: var(--jd-font-mono, Consolas, monospace);
+  font-size: 11.5px;
+}
+
+#jd-prefs-opendir {
+  flex: 0 0 auto;
+  appearance: none;
+  background: #33353a;
+  border: 1px solid var(--jd-border);
+  border-radius: 4px;
+  color: #d6d6d6;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+#jd-prefs-opendir:hover:not(:disabled) {
+  background: #3d4046;
+  color: #eee;
+}
+
+#jd-prefs-opendir:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.jd-prefs-hint {
+  margin: 4px 0 0;
+  color: #808690;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.jd-prefs-hint code {
+  font-family: var(--jd-font-mono, Consolas, monospace);
+  font-size: 11.5px;
+  color: #b9c0c8;
+}
+
+.jd-prefs-msg {
+  margin: 10px 0 0;
+  min-height: 16px;
+  font-size: 12px;
+  color: #7fb069;
+}
+
+/* 面板底部的提示行（常驻，不属于任何分区）：不留 margin，交给 padding 对齐 */
+#jd-prefs-panel > .jd-prefs-msg {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 20px 12px;
+}
+
+.jd-prefs-msg.is-err {
+  color: #d16969;
+}
+
+/* ---------------------------------------------------------------- 右键格式条
+ *
+ * 选中文本后右键在光标处浮出，按钮全部转发给 runCommand（与菜单同源）。
+ * z-index 50：低于两个弹窗（60），高于编辑器本身 —— 弹窗开着时不该被它盖住。
+ *
+ * 按钮统一 26px 高、最小 28px 宽：只写字母的 B/I/U/S 和写两个汉字的「高亮」
+ * 宽度不同，靠 min-width + padding 让它们看起来还是一组。
+ */
+#jd-fmtbar {
+  position: fixed;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  background: #242528;
+  border: 1px solid var(--jd-border);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+#jd-fmtbar.hidden {
+  display: none;
+}
+
+.jd-fmtbar-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 4px;
+  background: var(--jd-border);
+}
+
+.jd-fmtbar-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: #d6d6d6;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.jd-fmtbar-btn:hover:not(:disabled) {
+  background: #33353a;
+  color: #fff;
+}
+
+.jd-fmtbar-btn:active:not(:disabled) {
+  background: #3d4046;
+}
+
+.jd-fmtbar-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+/* 偏好设置里的文本输入框（正文字体 / 字号）—— 和路径框同一套观感，但可编辑 */
+.jd-prefs-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: #1d1e20;
+  border: 1px solid var(--jd-border);
+  border-radius: 4px;
+  color: #d6d6d6;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+}
+
+.jd-prefs-input:focus {
+  outline: 1px solid var(--jd-accent);
+  outline-offset: 1px;
+}
+
+.jd-prefs-input::placeholder {
+  color: #6b7076;
+}
+
+.jd-prefs-num {
+  flex: 0 0 78px;
+}
+
+.jd-prefs-unit {
+  flex: 0 0 auto;
+  color: #808690;
+  font-size: 12px;
+}
+
+/* 设置面板里的下拉（和主题下拉同一套观感，但不定宽：选项长度差很多） */
+.jd-prefs-select {
+  flex: 0 0 150px;
+  min-width: 0;
+  appearance: none;
+  background: #1d1e20;
+  border: 1px solid var(--jd-border);
+  border-radius: 4px;
+  color: #d6d6d6;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.jd-prefs-select:focus {
+  outline: 1px solid var(--jd-accent);
+  outline-offset: 1px;
+}
+
+/* 勾选项：整行可点（label 包住 input + 文字），比只点那个 13px 的小方块好使 */
+.jd-prefs-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: #c3c8cf;
+  font-size: 12.5px;
+  line-height: 1.5;
+  cursor: pointer;
+  user-select: none;
+}
+
+.jd-prefs-check input[type='checkbox'] {
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: var(--jd-accent);
+  cursor: pointer;
+}
+
+.jd-prefs-check code {
+  font-family: var(--jd-font-mono, Consolas, monospace);
+  font-size: 11.5px;
+  color: #b9c0c8;
+}
+
+/* 图片模板是一整条路径，需要比「正文字体」更宽 */
+.jd-prefs-wide {
+  flex: 1 1 260px;
+}
+
+/* 状态栏开关：隐藏时编辑区吃掉那 26px。display:none 之后 CM6 的可视高度
+   会变，main.ts 收到 PREFS_CHANGED 会 requestMeasure，否则光标位置会偏。 */
+body.jd-hide-statusbar #jd-status {
+  display: none;
+}
+
+/* 「恢复默认」推到行尾，和上面的输入框拉开距离 */
+#jd-prefs-font-reset {
+  flex: 0 0 auto;
+  margin-left: auto;
+  appearance: none;
+  background: #33353a;
+  border: 1px solid var(--jd-border);
+  border-radius: 4px;
+  color: #d6d6d6;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 5px 12px;
+  cursor: pointer;
+}
+
+#jd-prefs-font-reset:hover {
+  background: #3d4046;
+  color: #eee;
+}
+
+/* ---------------------------------------------------------------- 代码块语言徽章（4.5.0）
+ *
+ * 挂在闭合围栏行的行尾，靠**绝对定位**贴到这一行的右下角。
+ * 用绝对定位而不是普通内联元素，是因为它不能参与布局：
+ * 一旦把行撑高，CM6 的高度表和真实 DOM 就对不上，点击/选区/光标会整体错位
+ * （见 theme-fix.css 开头那段 345px 的教训）。绝对定位不进布局，安全。
+ *
+ * 徽章挂在**最后一行代码**上（不是闭合围栏行 —— 那行被压到 35% 亮度，徽章的颜色是
+ * currentColor 派生的，挂那儿会跟着变灰看不清）。所以定位基准是 `.jd-code-line`：
+ * 给它 position:relative 只创建包含块，不影响尺寸。
+ */
+#write .jd-code-line {
+  position: relative;
+}
+
+#write .jd-lang-badge {
+  position: absolute;
+  right: 10px;
+  bottom: 3px;
+  margin: 0;
+  padding: 3px 7px;
+  font-family: var(--code-font, Consolas, monospace), Consolas, monospace;
+  font-size: 11px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  border: 1px solid color-mix(in srgb, currentColor 26%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, currentColor 13%, transparent);
+  color: color-mix(in srgb, currentColor 78%, transparent);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+#write .jd-lang-badge:hover {
+  background: color-mix(in srgb, currentColor 24%, transparent);
+  color: currentColor;
+  border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+
+/* 没写语言的块显示「语言」，用虚线框暗示"这里还没定"，但不至于看不见 */
+#write .jd-lang-badge.is-empty {
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  background: color-mix(in srgb, currentColor 7%, transparent);
+  border-style: dashed;
+}
+
+/* ---------------------------------------------------------------- 语言选择浮层
+ * fixed 定位 + 打开时按锚点算位置（见 lang-picker.ts）。层级要比表格浮条高，
+ * 因为它可能从代码块里弹出来盖住底部工具条。
+ */
+.jd-langpick {
+  position: fixed;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--jd-panel-bg, #2b2b2b);
+  border: 1px solid var(--jd-border, #3c3f41);
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42);
+}
+
+.jd-langpick-search {
+  flex: none;
+  height: 26px;
+  padding: 0 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--jd-fg, #c3cad3);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border: 1px solid var(--jd-border, #3c3f41);
+  border-radius: 5px;
+  outline: none;
+}
+
+.jd-langpick-search:focus {
+  border-color: var(--jd-accent, #00c4b6);
+}
+
+.jd-langpick-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.jd-langpick-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--jd-fg, #c3cad3);
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.jd-langpick-item.is-current {
+  background: color-mix(in srgb, var(--jd-accent, #00c4b6) 20%, transparent);
+}
+
+.jd-langpick-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jd-langpick-item.is-selected::after {
+  content: '✓';
+  color: var(--jd-accent, #00c4b6);
+}
+
+.jd-langpick-alias {
+  flex: none;
+  font-size: 11px;
+  opacity: 0.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* ---------------------------------------------------------------- 文件面板（4.8.0）
+ *
+ * 加了搜索栏之后，文件页签也必须是一个 flex 列：
+ * `#jd-panes` 是 flex column，`#jd-files-wrap` 撑满、内部再分「搜索栏 + 树」，
+ * 树自己 `flex: 1 1 auto` 滚自己的。少这一层的话搜索栏会把树挤出去。
+ */
+#jd-files-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 文档列表视图：同名笔记靠右侧的灰字相对目录区分 */
+#jd-sidebar .jd-node.jd-flat .jd-node-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+#jd-sidebar .jd-flat-dir {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: #6f6f6f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#jd-sidebar .jd-node.jd-flat.is-active .jd-flat-dir {
+  color: #b9b9b9;
+}
+
+/* ---------------------------------------------------------------- 右键菜单（4.8.0）
+ *
+ * `position: fixed` + 视口坐标：菜单要在任何滚动位置都贴着鼠标出现，
+ * 用 absolute/pageY 会在滚动过的文档里偏掉一整屏。
+ * 尺寸不写死宽度（min 190px），长标签（「打开文件位置」）自己撑开，
+ * 具体 clamp 逻辑在 menu.ts 里按 getBoundingClientRect 算。
+ */
+.jd-menu {
+  position: fixed;
+  z-index: 70;
+  min-width: 190px;
+  max-width: 340px;
+  padding: 4px 0;
+  font-family: var(--jd-ui-font, 'Microsoft YaHei UI', 'Segoe UI', sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  color: #d5d3d3;
+  background: #2b2b2b;
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 5px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+  user-select: none;
+  animation: jd-menu-in 0.08s ease-out;
+}
+
+@keyframes jd-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.jd-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 12px 5px 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.jd-menu-item:hover,
+.jd-menu-item.is-current {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.jd-menu-item.is-disabled {
+  color: #6a6a6a;
+  background: none;
+  cursor: default;
+}
+
+.jd-menu-check {
+  flex: 0 0 16px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--jd-accent, #00c4b6);
+}
+
+.jd-menu-label {
+  flex: 1 1 auto;
+}
+
+.jd-menu-hint {
+  flex: 0 1 auto;
+  margin-left: 12px;
+  font-size: 11.5px;
+  color: #7a7a7a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 危险动作（删除）用警示色，且只在 hover 时铺底 —— 常驻红字太吵 */
+.jd-menu-item.is-danger {
+  color: #e06c75;
+}
+
+.jd-menu-item.is-danger:hover {
+  color: #ff939b;
+  background: rgba(224, 108, 117, 0.16);
+}
+
+.jd-menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ---------------------------------------------------------------- 模态框（4.8.0）
+ *
+ * 自绘的输入 / 确认 / 属性框，替掉 window.prompt 与 window.confirm：
+ * 那两个是阻塞式原生框，样式不可改，而且会把渲染层停住（自动化直接卡死）。
+ */
+.jd-modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.jd-modal {
+  width: 404px;
+  max-width: calc(100vw - 40px);
+  padding: 16px 18px 14px;
+  font-family: var(--jd-ui-font, 'Microsoft YaHei UI', 'Segoe UI', sans-serif);
+  font-size: 13px;
+  color: #d5d3d3;
+  background: #2b2b2b;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5);
+}
+
+.jd-modal-title {
+  margin-bottom: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.jd-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.jd-modal-label {
+  font-size: 12.5px;
+  color: #9a9a9a;
+}
+
+.jd-modal-input {
+  height: 30px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 13px;
+  color: #e6e6e6;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 4px;
+  outline: none;
+}
+
+.jd-modal-input:focus {
+  border-color: var(--jd-accent, #00c4b6);
+}
+
+.jd-modal-error {
+  font-size: 12px;
+  color: #e06c75;
+}
+
+.jd-modal-error:empty {
+  display: none;
+}
+
+.jd-modal-message {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.jd-modal-detail {
+  font-size: 12px;
+  color: #8f8f8f;
+}
+
+.jd-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.jd-modal-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.jd-modal button {
+  height: 28px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.jd-modal-ok {
+  color: #fff;
+  background: #0e639c;
+}
+
+.jd-modal-ok:hover {
+  background: #1177bb;
+}
+
+/* 危险动作的主按钮（删除）：红底，和"确定"区分开 */
+.jd-modal-ok.is-danger {
+  background: #a0323c;
+}
+
+.jd-modal-ok.is-danger:hover {
+  background: #bd3a45;
+}
+
+.jd-modal-cancel {
+  color: #d5d3d3;
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.jd-modal-cancel:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.jd-modal button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.jd-modal-props {
+  display: grid;
+  grid-template-columns: 62px 1fr;
+  gap: 7px 12px;
+  font-size: 12.5px;
+}
+
+.jd-modal-prop-key {
+  color: #8f8f8f;
+}
+
+.jd-modal-prop-val {
+  color: #d5d3d3;
+  word-break: break-all;
+  user-select: text;
+}
+
+.jd-modal-prop-val.is-mono {
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 12px;
+}
+
+/* ---------------------------------------------------------------- 拖拽移动（4.9.0）
+ *
+ * 视觉上只做三件事：拖起来的那行变淡、能放的那行亮起来、其余不动。
+ *
+ * ⚠ 高亮用 `outline` 而不是 `border`/`box-shadow` 撑高度：`.jd-node` 的行高
+ * 直接决定这片区域的手感，加边框会把行撑高 2px，整棵树跟着抖一下。
+ * `outline` 不参与布局。
+ *
+ * `user-select: none` 是必须的：不加的话按住行往下拖，浏览器会先把文件名
+ * 选中（蓝色一片），拖影里也带着选中文本，看起来像在拖一段文字而不是一个文件。
+ */
+#jd-sidebar .jd-node {
+  user-select: none;
+}
+
+#jd-sidebar .jd-node.is-dragging {
+  opacity: 0.42;
+}
+
+#jd-sidebar .jd-node.is-drop-target {
+  background: rgba(0, 196, 182, 0.16);
+  outline: 1px dashed var(--jd-accent, #00c4b6);
+  outline-offset: -1px;
+  border-radius: 3px;
+  color: #ffffff;
 }

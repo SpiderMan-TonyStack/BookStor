@@ -30,7 +30,15 @@
     "img": "jd-img",
     "pre": "jd-pre",
     "code": "jd-code-inline",
-    "kbd": "jd-kbd"
+    "kbd": "jd-kbd",
+    "mark": "jd-mark",
+    "u": "jd-underline",
+    "strong": "jd-strong",
+    "b": "jd-strong",
+    "em": "jd-em",
+    "i": "jd-em",
+    "del": "jd-del",
+    "s": "jd-del"
   },
   "classes": {
     "md-fences": "jd-code-block",

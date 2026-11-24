@@ -110,6 +110,69 @@ html[data-builtin='dark'] {
   background: var(--codebg-color, rgba(127, 127, 127, 0.16));
 }
 
+/* 高亮 `==文字==` 与下划线 `<u>文字</u>` 的兜底。
+ *
+ * **刻意不带 `#write ` 前缀**：主题里的 `#write mark{...}` 会被翻译成
+ * `#write .jd-mark`（特异性 1,1,0），而我们这条是 0,1,0 —— 主题永远赢，
+ * 不用 `!important` 也不用靠层叠顺序赌。rider-dark 就把高亮配成蓝底白字。
+ * 只有主题没写 mark/u 规则时（比如内置档），才落到这里的默认样式。
+ *
+ * CM6 不生成 <mark>/<u> 元素，所以 markers.ts 把这两个类挂到文本节点上。 */
+.jd-mark {
+  background: rgba(255, 214, 0, 0.22);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.jd-underline {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/*
+ * 加粗 / 斜体 / 删除线（4.7.1）。
+ *
+ * 以前 `**粗**` 只把星号藏掉、内容还是常规字重 —— 看起来等于"语法没了但是
+ * 也没变粗"。现在 markers.ts 把内容挂上这三个 class，语义和 Typora 一致。
+ * 同样用**裸类名**（0,1,0）：主题的 `#write strong{}` 经 mapping.json 翻译成
+ * `#write .jd-strong`（1,1,0）后自然压过这里，字重/颜色仍由主题说了算
+ * （rider-dark 给的是 #d7dae0 / 700）。下面这几条只是"主题没写"时的兜底。
+ */
+.jd-strong {
+  font-weight: 700;
+}
+
+.jd-em {
+  font-style: italic;
+}
+
+.jd-del {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/*
+ * 加粗 / 斜体 / 删除线（4.7.1）。
+ *
+ * 以前 `**粗**` 只把星号藏掉、内容还是常规字重 —— 看起来等于"语法没了但是
+ * 也没变粗"。现在 markers.ts 把内容挂上这三个 class，语义和 Typora 一致。
+ * 同样用**裸类名**（0,1,0）：主题的 `#write strong{}` 经 mapping.json 翻译成
+ * `#write .jd-strong`（1,1,0）后自然压过这里，字重/颜色仍由主题说了算
+ * （rider-dark 给的是 #d7dae0 / 700）。下面这几条只是"主题没写"时的兜底。
+ */
+.jd-strong {
+  font-weight: 700;
+}
+
+.jd-em {
+  font-style: italic;
+}
+
+.jd-del {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
 /* 代码块字体（底色/边框由主题的 .md-fences → .jd-code-block 提供） */
 #write .jd-code-line,
 #write .jd-code-block {
@@ -201,4 +264,189 @@ html[data-builtin='dark'] {
   /* 默认 1.2px 太细，深色背景下更显弱；加粗到 2px，margin 同步补偿以保持水平居中 */
   border-left-width: 2px;
   margin-left: -1px;
+}
+
+/* ============================================================ 4.3.0 段落菜单
+ *
+ * 「段落」菜单能插的这些块，插进来就得能看。四条共同规则：
+ *   ① **间距只用 padding，绝不用 margin** —— 行级 margin 不在 CM6 高度模型里
+ *      （见 theme-fix.css 开头那段，38 行实测累计偏 345px）。
+ *   ② 颜色一律用 `color-mix(currentColor)` 派生（警告框的语义色除外）：
+ *      一套规则同时适配明暗主题，不用为每个主题各写一遍。
+ *   ③ block widget（目录）也只给 padding —— 同上，widget 的 margin 一样进不了模型。
+ *   ④ 全部带 `#write ` 前缀并与 `.cm-line` 同特异性，靠**层叠顺序**压过
+ *      theme-base 顶部那条 `#write .cm-line{margin:0;padding:0}`；
+ *      主题若想改，写自己的规则自然赢（它在后面加载）。
+ */
+
+/* ---- YAML Front Matter：像元数据，不像正文 ---- */
+#write .jd-frontmatter {
+  font-family: var(--code-font, Consolas, monospace), Consolas, monospace;
+  font-size: 0.85em;
+  line-height: 1.55em;
+  color: color-mix(in srgb, currentColor 62%, transparent);
+  padding: 0 0.9em;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+#write .jd-frontmatter.jd-fm-first {
+  padding-top: 0.5em;
+  border-radius: 4px 4px 0 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+}
+
+#write .jd-frontmatter.jd-fm-last {
+  padding-bottom: 0.5em;
+  border-radius: 0 0 4px 4px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+}
+
+/* ---- 公式块 ----
+ *
+ * 没有接 KaTeX，所以这里显示的是**源码**（`$$` 在非活动行被藏掉）。
+ * 居中 + 等宽 + 淡底，是为了让它一眼和正文分开 —— 排版正确性做不到，
+ * 至少不能让它看起来像「打坏了的段落」。 */
+#write .jd-math {
+  font-family: var(--code-font, Consolas, monospace), Consolas, monospace;
+  font-size: 0.92em;
+  line-height: 1.7em;
+  text-align: center;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding: 0 1em;
+  /* 底色用 currentColor 派生，不用 --jd-code-bg：rider-dark 把后者配成 #111111，
+     刚插入的空公式块会变成一条纯黑横杠，看着像页面坏了。 */
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+#write .jd-math.jd-math-first {
+  padding-top: 0.6em;
+  border-radius: 4px 4px 0 0;
+}
+
+#write .jd-math.jd-math-last {
+  padding-bottom: 0.6em;
+  border-radius: 0 0 4px 4px;
+}
+
+/* ---- 警告框 `> [!NOTE]` ----
+ *
+ * 整块同色（lineclasses.ts 第二轮把类型 class 铺到整块上），左侧竖线盖掉
+ * 引用块默认的灰色；标题标签由 ::before 画出来，`[!NOTE]` 原文被藏掉。
+ * 五个类型是**语义色**，所以写死在这里 —— 不该跟着主题走：
+ * 换个主题就把「警告」变成蓝色是错的。 */
+#write .jd-adm {
+  --jd-adm-color: #4f8cc9;
+  border-left-color: var(--jd-adm-color);
+  background: color-mix(in srgb, var(--jd-adm-color) 9%, transparent);
+  padding-top: 0.14em;
+  padding-bottom: 0.14em;
+}
+
+#write .jd-adm-tip {
+  --jd-adm-color: #3fa66a;
+}
+
+#write .jd-adm-important {
+  --jd-adm-color: #7b61d6;
+}
+
+#write .jd-adm-warning {
+  --jd-adm-color: #d99a2b;
+}
+
+#write .jd-adm-caution {
+  --jd-adm-color: #d4544a;
+}
+
+/* 标题行：标签用 ::before 画，内容留空（原文 `[!NOTE]` 已被藏掉）。
+ * 注意不能给整行 opacity —— 它是这块的上边框载体（和围栏行同一个坑）。 */
+#write .jd-adm-first {
+  padding-top: 0.6em;
+}
+
+#write .jd-adm-first::before {
+  content: '备注';
+  display: inline-block;
+  margin-right: 0.4em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--jd-adm-color);
+}
+
+#write .jd-adm-tip.jd-adm-first::before {
+  content: '提示';
+}
+
+#write .jd-adm-important.jd-adm-first::before {
+  content: '重要';
+}
+
+#write .jd-adm-warning.jd-adm-first::before {
+  content: '警告';
+}
+
+#write .jd-adm-caution.jd-adm-first::before {
+  content: '危险';
+}
+
+#write .jd-adm-last {
+  padding-bottom: 0.6em;
+}
+
+/* ---- 脚注定义 `[^1]: 内容` ---- */
+#write .jd-footnote-def {
+  font-size: 0.92em;
+  color: color-mix(in srgb, currentColor 78%, transparent);
+  padding: 0.12em 0;
+}
+
+/* ---- 目录 `[TOC]` ----
+ * 这是一个**行内 widget**（见 toc.ts），挂在 .cm-line 里，
+ * 同样只能给 padding —— padding 进得了 CM6 的高度测量，margin 进不了。 */
+#write .jd-toc {
+  display: block;
+  padding: 0.55em 0 0.7em;
+}
+
+#write .jd-toc-title {
+  font-size: 0.86em;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, currentColor 55%, transparent);
+  padding-bottom: 0.35em;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+}
+
+#write .jd-toc-item {
+  cursor: pointer;
+  padding: 3px 0 3px 0.2em;
+  border-radius: 3px;
+  color: var(--jd-toc-color, currentColor);
+  /* 长标题不要把版心撑开 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#write .jd-toc-item:hover {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  color: var(--jd-link-color, currentColor);
+}
+
+#write .jd-toc-lv1 {
+  font-weight: 700;
+}
+
+#write .jd-toc-lv4,
+#write .jd-toc-lv5,
+#write .jd-toc-lv6 {
+  font-size: 0.94em;
+  color: color-mix(in srgb, currentColor 78%, transparent);
+}
+
+#write .jd-toc-empty {
+  padding: 0.4em 0;
+  color: color-mix(in srgb, currentColor 45%, transparent);
+  font-size: 0.9em;
 }

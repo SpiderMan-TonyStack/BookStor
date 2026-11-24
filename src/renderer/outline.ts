@@ -56,13 +56,26 @@ export function computeOutline(state: EditorState): OutlineItem[] {
 }
 
 /**
- * 渲染成一组可点的行。层级用 padding-left 区分，不做嵌套缩进线 ——
- * 侧栏宽度只有 240px 左右，多层缩进很快就把标题文字挤没了。
+ * 每一级的缩进步长（px）。
+ *
+ * 14 是照着 Typora 的大纲截图量的：一级标题文字左边界 32px、二级 46px、三级 60px。
+ * 我们的 item 还有 2px 的 border-left，所以 paddingLeft 用 30 + (level-1)*14。
+ */
+const INDENT_STEP = 14
+const INDENT_BASE = 30
+
+/**
+ * 渲染成一组可点的行。层级**只靠缩进**表达，不加折叠三角、不加粗、不加项目符号 ——
+ * 与 Typora 的大纲一致（它不归一化「最小级别」：全篇从 `##` 开始就整体缩进一格）。
+ *
+ * `filter` 非空时只显示标题文字命中它的行（大小写不敏感的子串匹配），
+ * 缩进层级原样保留 —— 这样还能看出「这条属于哪一级」。
  */
 export function renderOutline(
   container: HTMLElement,
   items: OutlineItem[],
-  onJump: (pos: number) => void
+  onJump: (pos: number) => void,
+  filter = ''
 ): void {
   container.textContent = ''
 
@@ -74,21 +87,30 @@ export function renderOutline(
     return
   }
 
-  // 大纲最小层级归一：如果全篇都从 ## 开始，别让它们整体向右缩进一格
-  let minLevel = 6
-  for (const it of items) if (it.level < minLevel) minLevel = it.level
+  const q = filter.trim().toLowerCase()
+  const visible = q ? items.filter((it) => it.text.toLowerCase().includes(q)) : items
 
-  for (const it of items) {
+  if (visible.length === 0) {
+    const empty = document.createElement('div')
+    empty.className = 'jd-outline-empty'
+    empty.textContent = '没有匹配的标题'
+    container.append(empty)
+    return
+  }
+
+  const frag = document.createDocumentFragment()
+  for (const it of visible) {
     const row = document.createElement('div')
     row.className = `jd-outline-item jd-outline-lv${it.level}`
     row.dataset['pos'] = String(it.from)
     row.dataset['line'] = String(it.line)
-    row.style.paddingLeft = `${10 + (it.level - minLevel) * 12}px`
+    row.style.paddingLeft = `${INDENT_BASE + (it.level - 1) * INDENT_STEP}px`
     row.textContent = it.text
     row.title = it.text
     row.addEventListener('click', () => onJump(it.from))
-    container.append(row)
+    frag.append(row)
   }
+  container.append(frag)
 }
 
 /**

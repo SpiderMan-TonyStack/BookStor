@@ -3,6 +3,7 @@
  */
 
 import type { CommandDef, Keymap } from './commands.js'
+import type { Prefs } from './prefs.js'
 
 /**
  * 换行风格。
@@ -122,13 +123,47 @@ declare global {
       getLibrary(): Promise<string | null>
       setLibrary(root: string): Promise<string | null>
       listTree(root: string): Promise<FileNode[]>
+      /** 只读一层目录（文件树懒加载；`children` 不填表示还没读过） */
+      listDir(dir: string): Promise<FileNode[]>
+      /** 新建文件/文件夹（名字非法或已存在时 `ok:false` + 中文原因） */
+      newEntry(dir: string, name: string, isDir: boolean): Promise<{ ok: boolean; path?: string; error?: string }>
+      /** 移动文件/目录到另一个目录（拖拽用；同名会失败，不覆盖） */
+      moveEntry(src: string, targetDir: string): Promise<{ ok: boolean; path?: string; error?: string }>
+      /** 重命名（新名字没带扩展名时沿用原来的） */
+      renameEntry(target: string, name: string): Promise<{ ok: boolean; path?: string; error?: string }>
+      /** 删除到系统回收站；`forceAvailable` 表示回收站被系统拒绝、可以走永久删除 */
+      trashEntry(target: string): Promise<{ ok: boolean; error?: string; forceAvailable?: boolean }>
+      /** 永久删除（只在回收站不可用且用户二次确认后调用） */
+      removeEntry(target: string): Promise<{ ok: boolean; error?: string }>
+      /** 在资源管理器里定位（成功返回空串，失败返回中文原因） */
+      revealEntry(target: string): Promise<string>
+      /** 文件/目录属性（不存在返回 null） */
+      statEntry(
+        target: string
+      ): Promise<{ path: string; name: string; isDir: boolean; size: number; mtimeMs: number } | null>
+      openInNewWindow(file?: string): Promise<boolean>
       readNote(path: string): Promise<NoteDoc>
       writeNote(path: string, text: string, meta: SaveMeta): Promise<SaveResult>
       saveImage(notePath: string, base64: string, ext: string): Promise<string>
       brokenImagesOf(path: string): Promise<BrokenImage[]>
       scanBrokenImages(root: string): Promise<BrokenImage[]>
+      /** 在资源管理器里定位图片文件；返回错误串，空串 = 成功 */
+      revealImage(absPath: string): Promise<string>
       getThemes(): Promise<string[]>
       getThemeDir(): Promise<string>
+      /** 在系统文件管理器里打开主题目录；返回错误串，空串 = 成功 */
+      openThemeDir(): Promise<string>
+      /** 正文字体 / 字号：空串和 0 表示跟随主题 */
+      getFont(): Promise<{ family: string; size: number }>
+      setFont(patch: { family?: string; size?: number }): Promise<{ family: string; size: number }>
+      /** 行为偏好：整包读、整包改（未知键丢弃，值由主进程夹区间） */
+      getPrefs(): Promise<Prefs>
+      setPrefs(patch: Partial<Prefs>): Promise<Prefs>
+      /** 用系统默认程序打开链接；只放行 http/https/mailto，返回错误串，空串 = 成功 */
+      openExternal(url: string): Promise<string>
+      /** 系统剪贴板读写（右键格式条用；渲染进程的 navigator.clipboard 在 file:// 下受限） */
+      readClipboard(): Promise<string>
+      writeClipboard(text: string): Promise<boolean>
       getCurrentTheme(): Promise<string>
       setCurrentTheme(name: string): Promise<string>
       translateTheme(name: string): Promise<ThemePayload>

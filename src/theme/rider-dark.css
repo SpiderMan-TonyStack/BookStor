@@ -87,9 +87,16 @@ body {
 #write h4 {
   font-size: 1.12em;
 }
-#write h5,
+/* h5 / h6 要能和正文区分开（Typora 的默认为 0.875 / 0.85em）：
+   原来这两个都是 1em，渲染出来和正文一样大，只剩"加粗"这一个差别，
+   六级标题实际上退化成两级。 */
+#write h5 {
+  font-size: 0.9em;
+  color: var(--text-color);
+  border-bottom: none;
+}
 #write h6 {
-  font-size: 1em;
+  font-size: 0.85em;
   color: var(--text-color);
   border-bottom: none;
 }
